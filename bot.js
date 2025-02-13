@@ -6,10 +6,16 @@ import express from 'express';
 
 dotenv.config();
 
-const token = process.env.TELEGRAM_BOT_TOKEN;
-const WEBAPP_URL = process.env.WEBAPP_URL;
-const API_URL = process.env.API_URL;
-const url = process.env.APP_URL;
+// Проверяем наличие необходимых переменных окружения
+const token = process.env.TELEGRAM_BOT_TOKEN || '';
+const WEBAPP_URL = process.env.WEBAPP_URL || '';
+const API_URL = process.env.API_URL || '';
+const APP_URL = process.env.APP_URL || '';
+
+if (!token) {
+    console.error('TELEGRAM_BOT_TOKEN is not defined');
+    process.exit(1);
+}
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -18,8 +24,15 @@ app.use(express.json());
 
 const bot = new TelegramBot(token);
 
-// Устанавливаем webhook
-bot.setWebHook(`${url}/webhook/${token}`);
+// Устанавливаем webhook только если есть APP_URL
+if (APP_URL) {
+    const webhookUrl = `${APP_URL}/webhook/${token}`;
+    bot.setWebHook(webhookUrl).then(() => {
+        console.log('Webhook set to:', webhookUrl);
+    }).catch(error => {
+        console.error('Error setting webhook:', error);
+    });
+}
 
 // Обработчик webhook
 app.post(`/webhook/${token}`, (req, res) => {
@@ -41,13 +54,17 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
         const referrerId = startParam.substring(4);
 
         try {
+            if (!API_URL) {
+                throw new Error('API_URL is not defined');
+            }
+
             console.log('Processing referral:', {
                 referrerId,
                 userId,
                 userData: msg.from
             });
 
-            // Сохраняем реферала в базу данных
+            // Сохраняем реферала
             const response = await fetch(`${API_URL}/api/referrals`, {
                 method: 'POST',
                 headers: {
@@ -55,13 +72,11 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
                 },
                 body: JSON.stringify({
                     referrerId,
-                    userId: userId.toString(), // преобразуем в строку для консистентности
+                    userId: userId.toString(),
                     userData: {
                         first_name: msg.from.first_name,
                         last_name: msg.from.last_name,
-                        username: msg.from.username,
-                        photo_url: msg.from.photo_url,
-                        language_code: msg.from.language_code
+                        username: msg.from.username
                     }
                 })
             });
@@ -69,7 +84,7 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             const result = await response.json();
             console.log('Referral saved:', result);
 
-            // Отправляем сообщение и реферреру
+            // Отправляем уведомление реферреру
             bot.sendMessage(referrerId, `У вас новый реферал: ${msg.from.first_name}!`);
 
         } catch (error) {
@@ -77,14 +92,17 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
         }
     }
 
-    // Отправляем приветственное сообщение с кнопкой для игры
-    bot.sendMessage(msg.from.id, 'Добро пожаловать в игру!', {
+    // Отправляем приветственное сообщение
+    const welcomeMessage = 'Добро пожаловать в игру!';
+    const keyboard = WEBAPP_URL ? {
         reply_markup: {
             inline_keyboard: [[
                 { text: 'Открыть игру', web_app: { url: WEBAPP_URL } }
             ]]
         }
-    });
+    } : undefined;
+
+    bot.sendMessage(msg.from.id, welcomeMessage, keyboard);
 });
 
 app.get('/', (req, res) => {
@@ -103,9 +121,20 @@ bot.on('webhook_error', (error) => {
 // Запускаем сервер
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
-    console.log('Environment:', {
-        WEBAPP_URL,
-        API_URL,
-        APP_URL
+    console.log('Environment variables:', {
+        WEBAPP_URL: WEBAPP_URL || 'Not set',
+        API_URL: API_URL || 'Not set',
+        APP_URL: APP_URL || 'Not set'
     });
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    bot.closeWebHook();
+    process.exit();
+});
+
+process.on('SIGTERM', () => {
+    bot.closeWebHook();
+    process.exit();
 });
