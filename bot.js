@@ -35,13 +35,18 @@ app.get('/', (req, res) => {
 
 // Обработка команды /start
 bot.onText(/\/start(.*)/, async (msg, match) => {
+    console.log('Received /start command with params:', match[1].trim());
     const startParam = match[1].trim();
     const userId = msg.from.id;
 
+    console.log('User ID:', userId);
+
     if (startParam.startsWith('ref_')) {
         const referrerId = startParam.substring(4);
+        console.log('Referrer ID:', referrerId);
 
         try {
+            console.log('Attempting to save referral...');
             const response = await fetch(`${API_URL}/api/referrals`, {
                 method: 'POST',
                 headers: {
@@ -53,13 +58,17 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
                     userData: {
                         first_name: msg.from.first_name,
                         last_name: msg.from.last_name,
-                        username: msg.from.username
+                        username: msg.from.username,
+                        photo_url: msg.from.photo_url
                     }
                 })
             });
 
+            const responseText = await response.text();
+            console.log('API Response:', response.status, responseText);
+
             if (!response.ok) {
-                console.error('Failed to save referral:', await response.text());
+                console.error('Failed to save referral:', responseText);
             }
         } catch (error) {
             console.error('Error saving referral:', error);
