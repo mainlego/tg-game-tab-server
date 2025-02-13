@@ -53,6 +53,7 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
     });
 
     // В обработчике /start в bot.js
+// В обработчике /start в bot.js
     if (startParam.startsWith('ref_')) {
         const referrerId = startParam.substring(4);
 
