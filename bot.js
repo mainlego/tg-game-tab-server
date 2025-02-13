@@ -3,6 +3,16 @@ import dotenv from 'dotenv';
 import TelegramBot from 'node-telegram-bot-api';
 import fetch from 'node-fetch';
 import express from 'express';
+import axios from 'axios'; // Добавьте эту зависимость
+
+
+// Включим более подробное логирование
+console.log('Bot starting...');
+console.log('Environment variables:', {
+    WEBAPP_URL: process.env.WEBAPP_URL,
+    API_URL: process.env.API_URL,
+    APP_URL: process.env.APP_URL
+});
 
 dotenv.config();
 
@@ -34,73 +44,47 @@ app.get('/', (req, res) => {
 });
 
 
-bot.on('message', (msg) => {
-    console.log('Received message:', msg);
+bot.on('message', async (msg) => {
+    console.log('Received message:', JSON.stringify(msg, null, 2));
 });
 
 // Обработка команды /start
 bot.onText(/\/start(.*)/, async (msg, match) => {
-    console.log('Start command received', {
-        message: msg,
-        params: match,
-        from: msg.from
-    });
-    const startParam = match[1].trim();
-    const userId = msg.from.id;
-
-    console.log('User ID:', userId);
-
-
-
-    if (startParam.startsWith('ref_')) {
-        const referrerId = startParam.substring(4);
-        console.log('Processing referral:', {
-            referrerId,
-            userId,
-            startParam
+    try {
+        console.log('Start command received:', {
+            message: msg,
+            match: match
         });
 
-        try {
-            const requestBody = {
-                referrerId,
-                userId,
+        const startParam = match[1].trim();
+        if (startParam.startsWith('ref_')) {
+            // Проверяем формат и значения
+            console.log('Referral params:', {
+                startParam,
+                userId: msg.from.id,
+                referrerId: startParam.substring(4)
+            });
+
+            // Пробуем отправить запрос через axios для лучшей отладки
+            const response = await axios.post(`${API_URL}/api/referrals`, {
+                referrerId: startParam.substring(4),
+                userId: msg.from.id,
                 userData: {
                     first_name: msg.from.first_name,
                     last_name: msg.from.last_name,
                     username: msg.from.username
                 }
-            };
-
-            console.log('Sending request to API:', {
-                url: `${API_URL}/api/referrals`,
-                body: requestBody
             });
 
-            const response = await fetch(`${API_URL}/api/referrals`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(requestBody)
-            });
-
-            const responseData = await response.text();
-            console.log('API Response:', {
-                status: response.status,
-                data: responseData
-            });
-        } catch (error) {
-            console.error('Error processing referral:', error);
+            console.log('API Response:', response.data);
         }
+    } catch (error) {
+        console.error('Error in start handler:', {
+            message: error.message,
+            response: error.response?.data,
+            status: error.response?.status
+        });
     }
-
-    bot.sendMessage(msg.from.id, 'Добро пожаловать в игру!', {
-        reply_markup: {
-            inline_keyboard: [[
-                { text: 'Открыть игру', web_app: { url: WEBAPP_URL } }
-            ]]
-        }
-    });
 });
 
 // Обработка ошибок
