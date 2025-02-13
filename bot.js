@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import TelegramBot from 'node-telegram-bot-api';
 import fetch from 'node-fetch';
 import express from 'express';
+import dbConnect from './lib/dbConnect.js';
+import Referral from './models/Referral.js';
 
 dotenv.config();
 
@@ -24,7 +26,7 @@ app.use(express.json());
 
 // Инициализация бота
 const bot = new TelegramBot(token, {
-    webHook: true // просто указываем что используем webhook без привязки к порту
+    webHook: true
 });
 
 // Основные обработчики маршрутов
@@ -32,11 +34,21 @@ app.get('/', (req, res) => {
     res.send('Bot is running');
 });
 
-if (req.method === 'GET' && req.query.debug === 'true') {
-    const allReferrals = await Referral.find({});
-    console.log('All referrals in DB:', allReferrals);
-    return res.status(200).json(allReferrals);
-}
+// Обработчик для debug запросов
+app.get('/debug', async (req, res) => {
+    try {
+        if (req.query.debug === 'true') {
+            await dbConnect();
+            const allReferrals = await Referral.find({});
+            console.log('All referrals in DB:', allReferrals);
+            return res.status(200).json(allReferrals);
+        }
+        return res.status(400).send('Debug parameter is required');
+    } catch (error) {
+        console.error('Debug endpoint error:', error);
+        return res.status(500).json({ error: error.message });
+    }
+});
 
 app.post(`/webhook/${token}`, async (req, res) => {
     try {
@@ -58,8 +70,6 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
         user: msg.from
     });
 
-    // В обработчике /start в bot.js
-// В обработчике /start в bot.js
     if (startParam.startsWith('ref_')) {
         const referrerId = startParam.substring(4);
 
@@ -70,15 +80,12 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
                 userData: msg.from
             });
 
-            // Отправляем запрос к новому API эндпоинту
-            // bot.js - modify the fetch request
             const response = await fetch(`${API_URL}/api/referrals`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json',
-                    // Add authorization header if you have an API key
-                    'Authorization': `Bearer ${process.env.API_KEY}` // Add this to your .env file
+                    'Authorization': `Bearer ${process.env.API_KEY}`
                 },
                 body: JSON.stringify({
                     referrerId,
@@ -103,7 +110,6 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             console.log('Referral saved:', result);
 
             if (result.success) {
-                // Отправляем уведомление реферреру только если сохранение успешно
                 await bot.sendMessage(referrerId,
                     `🎉 У вас новый реферал: ${msg.from.first_name}!\nКогда он начнет играть, вы получите бонус.`
                 );
@@ -155,6 +161,10 @@ bot.on('webhook_error', (error) => {
 // Функция запуска сервера
 const startServer = async () => {
     try {
+        // Подключаемся к базе данных
+        await dbConnect();
+        console.log('Database connected successfully');
+
         // Запускаем сервер
         await new Promise((resolve) => {
             const server = app.listen(port, () => {
@@ -167,7 +177,6 @@ const startServer = async () => {
                 resolve(server);
             });
 
-            // Обработка ошибок сервера
             server.on('error', (error) => {
                 console.error('Server error:', error);
                 if (error.code === 'EADDRINUSE') {
@@ -177,14 +186,12 @@ const startServer = async () => {
             });
         });
 
-        // Настраиваем webhook
         if (APP_URL) {
             const webhookUrl = `${APP_URL}/webhook/${token}`;
             try {
                 await bot.setWebHook(webhookUrl);
                 console.log('Webhook set successfully to:', webhookUrl);
 
-                // Проверяем информацию о webhook
                 const webhookInfo = await bot.getWebHookInfo();
                 console.log('Webhook info:', webhookInfo);
             } catch (error) {
