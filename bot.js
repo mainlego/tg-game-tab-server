@@ -136,7 +136,7 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             ]]
         }
     });
-
+});
 
 // Общий обработчик сообщений для отладки
 bot.on('message', (msg) => {
