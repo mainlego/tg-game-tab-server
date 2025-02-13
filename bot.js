@@ -6,42 +6,37 @@ import express from 'express';
 
 dotenv.config();
 
+// Конфигурация и проверка переменных окружения
 const token = process.env.TELEGRAM_BOT_TOKEN || '';
 const WEBAPP_URL = process.env.WEBAPP_URL || '';
 const API_URL = process.env.API_URL || '';
 const APP_URL = process.env.APP_URL || '';
+const port = process.env.PORT || 3000;
 
 if (!token) {
     console.error('TELEGRAM_BOT_TOKEN is not defined');
     process.exit(1);
 }
 
+// Инициализация Express
 const app = express();
-const port = process.env.PORT || 3000;
-
 app.use(express.json());
 
-// Создаем бота с правильными опциями для webhook
+// Инициализация бота
 const bot = new TelegramBot(token, {
     webHook: {
         port: port
     }
 });
 
-// Настраиваем webhook
-if (APP_URL) {
-    const webhookUrl = `${APP_URL}/webhook/${token}`;
-    bot.setWebHook(webhookUrl).then(() => {
-        console.log('Webhook set to:', webhookUrl);
-    }).catch(error => {
-        console.error('Error setting webhook:', error);
-    });
-}
+// Основные обработчики маршрутов
+app.get('/', (req, res) => {
+    res.send('Bot is running');
+});
 
-// Обработчик webhook
 app.post(`/webhook/${token}`, async (req, res) => {
     try {
-        await bot.processUpdate(req.body); // Используем processUpdate вместо handleUpdate
+        await bot.processUpdate(req.body);
         res.sendStatus(200);
     } catch (error) {
         console.error('Error processing update:', error);
@@ -49,7 +44,7 @@ app.post(`/webhook/${token}`, async (req, res) => {
     }
 });
 
-// Обработка команды /start
+// Обработчики команд бота
 bot.onText(/\/start(.*)/, async (msg, match) => {
     const startParam = match[1].trim();
     const userId = msg.from.id;
@@ -63,17 +58,13 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
         const referrerId = startParam.substring(4);
 
         try {
-            if (!API_URL) {
-                throw new Error('API_URL is not defined');
-            }
-
             console.log('Processing referral:', {
                 referrerId,
                 userId,
                 userData: msg.from
             });
 
-            // Сохраняем реферала
+            // Сохраняем реферала в базу данных
             const response = await fetch(`${API_URL}/api/referrals`, {
                 method: 'POST',
                 headers: {
@@ -93,37 +84,37 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             const result = await response.json();
             console.log('Referral saved:', result);
 
-            // Отправляем уведомление реферреру
-            bot.sendMessage(referrerId, `У вас новый реферал: ${msg.from.first_name}!`);
-
+            if (result.success) {
+                // Отправляем уведомление реферреру
+                await bot.sendMessage(referrerId,
+                    `🎉 У вас новый реферал: ${msg.from.first_name}!\nКогда он начнет играть, вы получите бонус.`
+                );
+            }
         } catch (error) {
             console.error('Error saving referral:', error);
         }
     }
 
     // Отправляем приветственное сообщение
-    const welcomeMessage = 'Добро пожаловать в игру!';
-    const keyboard = WEBAPP_URL ? {
+    const welcomeMessage = startParam.startsWith('ref_')
+        ? 'Добро пожаловать в игру! Вы присоединились по реферальной ссылке.'
+        : 'Добро пожаловать в игру!';
+
+    await bot.sendMessage(msg.from.id, welcomeMessage, {
         reply_markup: {
             inline_keyboard: [[
                 { text: 'Открыть игру', web_app: { url: WEBAPP_URL } }
             ]]
         }
-    } : undefined;
-
-    bot.sendMessage(msg.from.id, welcomeMessage, keyboard);
+    });
 });
 
-// Добавляем общий обработчик сообщений для отладки
+// Общий обработчик сообщений для отладки
 bot.on('message', (msg) => {
     console.log('Received message:', msg);
 });
 
-app.get('/', (req, res) => {
-    res.send('Bot is running');
-});
-
-// Обработка ошибок
+// Обработчики ошибок
 bot.on('error', (error) => {
     console.error('Bot error:', error);
 });
@@ -132,23 +123,72 @@ bot.on('webhook_error', (error) => {
     console.error('Webhook error:', error);
 });
 
+// Функция запуска сервера
+const startServer = async () => {
+    try {
+        // Запускаем сервер
+        await new Promise((resolve) => {
+            const server = app.listen(port, () => {
+                console.log(`Server is running on port ${port}`);
+                console.log('Environment variables:', {
+                    WEBAPP_URL: WEBAPP_URL || 'Not set',
+                    API_URL: API_URL || 'Not set',
+                    APP_URL: APP_URL || 'Not set'
+                });
+                resolve(server);
+            });
+
+            // Обработка ошибок сервера
+            server.on('error', (error) => {
+                console.error('Server error:', error);
+                if (error.code === 'EADDRINUSE') {
+                    console.error(`Port ${port} is already in use`);
+                    process.exit(1);
+                }
+            });
+        });
+
+        // Настраиваем webhook
+        if (APP_URL) {
+            const webhookUrl = `${APP_URL}/webhook/${token}`;
+            try {
+                await bot.setWebHook(webhookUrl);
+                console.log('Webhook set successfully to:', webhookUrl);
+
+                // Проверяем информацию о webhook
+                const webhookInfo = await bot.getWebHookInfo();
+                console.log('Webhook info:', webhookInfo);
+            } catch (error) {
+                console.error('Error setting webhook:', error);
+            }
+        } else {
+            console.warn('APP_URL is not set, webhook was not configured');
+        }
+    } catch (error) {
+        console.error('Error starting server:', error);
+        process.exit(1);
+    }
+};
+
+// Обработка завершения работы
+const gracefulShutdown = async () => {
+    console.log('Received shutdown signal');
+    try {
+        await bot.closeWebHook();
+        console.log('Webhook closed');
+        process.exit(0);
+    } catch (error) {
+        console.error('Error during shutdown:', error);
+        process.exit(1);
+    }
+};
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+
 // Запускаем сервер
-app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-    console.log('Environment variables:', {
-        WEBAPP_URL: WEBAPP_URL || 'Not set',
-        API_URL: API_URL || 'Not set',
-        APP_URL: APP_URL || 'Not set'
-    });
-});
-
-// Graceful shutdown
-process.on('SIGINT', () => {
-    bot.closeWebHook();
-    process.exit();
-});
-
-process.on('SIGTERM', () => {
-    bot.closeWebHook();
-    process.exit();
+console.log('Starting server...');
+startServer().catch(error => {
+    console.error('Failed to start server:', error);
+    process.exit(1);
 });
