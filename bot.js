@@ -9,19 +9,35 @@ dotenv.config();
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL;
 const API_URL = process.env.API_URL;
+const url = process.env.APP_URL; // URL вашего приложения на Render
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Создаем бота только с polling
+// Парсинг JSON
+app.use(express.json());
+
+// Создаем бота с webhook
 const bot = new TelegramBot(token, {
-    polling: true
+    webHook: {
+        port: port
+    }
+});
+
+// Устанавливаем webhook
+bot.setWebHook(`${url}/webhook/${token}`);
+
+// Обработчик webhook
+app.post(`/webhook/${token}`, (req, res) => {
+    bot.handleUpdate(req.body);
+    res.sendStatus(200);
 });
 
 app.get('/', (req, res) => {
     res.send('Bot is running');
 });
 
+// Обработка команды /start
 bot.onText(/\/start(.*)/, async (msg, match) => {
     const startParam = match[1].trim();
     const userId = msg.from.id;
@@ -68,22 +84,10 @@ bot.on('error', (error) => {
     console.error('Bot error:', error);
 });
 
-bot.on('polling_error', (error) => {
-    console.error('Polling error:', error);
+bot.on('webhook_error', (error) => {
+    console.error('Webhook error:', error);
 });
 
-// Запускаем сервер
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
-});
-
-// Graceful shutdown
-process.on('SIGINT', () => {
-    bot.stopPolling();
-    process.exit();
-});
-
-process.on('SIGTERM', () => {
-    bot.stopPolling();
-    process.exit();
 });
