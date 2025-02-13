@@ -123,22 +123,20 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
         reply_markup: {
             inline_keyboard: [[
                 {
-                    text: 'Открыть игру',
+                    text: '🎮 Открыть игру',
                     web_app: {
-                        url: WEBAPP_URL,
-                        // Добавляем параметры для полноэкранного режима
+                        url: `${WEBAPP_URL}?tgWebAppMode=fullscreen&tgWebAppExpand=1`,
                         settings: {
-                            viewport_height: '100%',
-                            viewport_width: '100%',
-                            header_color: '#1a1a1a', // Цвет заголовка
-                            is_expanded: true // Полноэкранный режим
+                            viewport_height: '100vh',
+                            header_color: '#1a1a1a',
+                            is_expanded: true
                         }
                     }
                 }
             ]]
         }
     });
-});
+
 
 // Общий обработчик сообщений для отладки
 bot.on('message', (msg) => {
