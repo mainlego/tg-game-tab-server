@@ -62,11 +62,14 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
                 userData: msg.from
             });
 
-            // Сохраняем реферала в базу данных
+            // Добавим логирование запроса
+            console.log('Sending request to:', `${API_URL}/api/referrals`);
+
             const response = await fetch(`${API_URL}/api/referrals`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({
                     referrerId,
@@ -79,17 +82,23 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
                 })
             });
 
-            const result = await response.json();
-            console.log('Referral saved:', result);
+            // Проверяем ответ
+            const responseText = await response.text();
+            console.log('API Response:', response.status, responseText);
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status} ${responseText}`);
+            }
+
+            const result = JSON.parse(responseText);
 
             if (result.success) {
-                // Отправляем уведомление реферреру
                 await bot.sendMessage(referrerId,
-                    `🎉 У вас новый реферал: ${msg.from.first_name}!\nКогда он начнет играть, вы получите бонус.`
+                    `🎉 У вас новый реферал: ${msg.from.first_name}!`
                 );
             }
         } catch (error) {
-            console.error('Error saving referral:', error);
+            console.error('Error processing referral:', error);
         }
     }
 
