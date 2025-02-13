@@ -122,7 +122,19 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
     await bot.sendMessage(msg.from.id, welcomeMessage, {
         reply_markup: {
             inline_keyboard: [[
-                { text: 'Открыть игру', web_app: { url: WEBAPP_URL } }
+                {
+                    text: 'Открыть игру',
+                    web_app: {
+                        url: WEBAPP_URL,
+                        // Добавляем параметры для полноэкранного режима
+                        settings: {
+                            viewport_height: '100%',
+                            viewport_width: '100%',
+                            header_color: '#1a1a1a', // Цвет заголовка
+                            is_expanded: true // Полноэкранный режим
+                        }
+                    }
+                }
             ]]
         }
     });
