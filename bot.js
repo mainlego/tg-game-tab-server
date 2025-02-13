@@ -24,9 +24,7 @@ app.use(express.json());
 
 // Инициализация бота
 const bot = new TelegramBot(token, {
-    webHook: {
-        port: port
-    }
+    webHook: true // просто указываем что используем webhook без привязки к порту
 });
 
 // Основные обработчики маршрутов
