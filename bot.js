@@ -34,22 +34,6 @@ app.get('/', (req, res) => {
     res.send('Bot is running');
 });
 
-// Обработчик для debug запросов
-app.get('/debug', async (req, res) => {
-    try {
-        if (req.query.debug === 'true') {
-            await dbConnect();
-            const allReferrals = await Referral.find({});
-            console.log('All referrals in DB:', allReferrals);
-            return res.status(200).json(allReferrals);
-        }
-        return res.status(400).send('Debug parameter is required');
-    } catch (error) {
-        console.error('Debug endpoint error:', error);
-        return res.status(500).json({ error: error.message });
-    }
-});
-
 app.post(`/webhook/${token}`, async (req, res) => {
     try {
         await bot.processUpdate(req.body);
@@ -131,11 +115,9 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
                 {
                     text: '🎮 Открыть игру',
                     web_app: {
-                        url: `${WEBAPP_URL}?tgWebAppMode=fullscreen&tgWebAppExpand=1`,
+                        url: WEBAPP_URL,
                         settings: {
-                            viewport_height: '100vh',
-                            header_color: '#1a1a1a',
-                            is_expanded: true
+                            size: 'maximized'
                         }
                     }
                 }
