@@ -13,22 +13,9 @@ const API_URL = process.env.API_URL;
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Изменяем опции бота
+// Создаем бота только с polling
 const bot = new TelegramBot(token, {
-    polling: true,
-    // Добавляем уникальный идентификатор для этого экземпляра
-    filepath: false,
-    // Добавляем параметры для предотвращения конфликтов
-    webHook: {
-        port: port
-    }
-});
-
-// Сбрасываем webhook перед началом polling
-bot.deleteWebHook().then(() => {
-    console.log('Webhook deleted successfully');
-}).catch(error => {
-    console.error('Error deleting webhook:', error);
+    polling: true
 });
 
 app.get('/', (req, res) => {
@@ -76,7 +63,7 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
     });
 });
 
-// Добавляем обработку ошибок
+// Обработка ошибок
 bot.on('error', (error) => {
     console.error('Bot error:', error);
 });
@@ -85,12 +72,12 @@ bot.on('polling_error', (error) => {
     console.error('Polling error:', error);
 });
 
-// Запускаем express сервер
+// Запускаем сервер
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
 
-// Добавляем обработку процесса для корректного завершения
+// Graceful shutdown
 process.on('SIGINT', () => {
     bot.stopPolling();
     process.exit();
