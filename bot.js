@@ -4,7 +4,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import fetch from 'node-fetch';
 import express from 'express';
 import dbConnect from './lib/dbConnect.js';
-import Referral from './models/Referral.js';
+import Referral from './models/Referral.js';  // Оставляем только один импорт
 
 dotenv.config();
 
