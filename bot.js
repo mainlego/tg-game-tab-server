@@ -9,7 +9,7 @@ dotenv.config();
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL;
 const API_URL = process.env.API_URL;
-const url = process.env.APP_URL; // URL вашего приложения на Render
+const url = process.env.APP_URL;
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -17,14 +17,10 @@ const port = process.env.PORT || 3000;
 // Парсинг JSON
 app.use(express.json());
 
-// Создаем бота с webhook
-const bot = new TelegramBot(token, {
-    webHook: {
-        port: port
-    }
-});
+// Создаем бота
+const bot = new TelegramBot(token);
 
-// Устанавливаем webhook
+// Настраиваем webhook
 bot.setWebHook(`${url}/webhook/${token}`);
 
 // Обработчик webhook
@@ -88,6 +84,16 @@ bot.on('webhook_error', (error) => {
     console.error('Webhook error:', error);
 });
 
+// Запускаем единственный сервер
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
+});
+
+// Обработка завершения работы
+process.on('SIGINT', () => {
+    process.exit();
+});
+
+process.on('SIGTERM', () => {
+    process.exit();
 });
