@@ -6,7 +6,6 @@ import express from 'express';
 
 dotenv.config();
 
-// Проверяем наличие необходимых переменных окружения
 const token = process.env.TELEGRAM_BOT_TOKEN || '';
 const WEBAPP_URL = process.env.WEBAPP_URL || '';
 const API_URL = process.env.API_URL || '';
@@ -22,9 +21,14 @@ const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-const bot = new TelegramBot(token);
+// Создаем бота с правильными опциями для webhook
+const bot = new TelegramBot(token, {
+    webHook: {
+        port: port
+    }
+});
 
-// Устанавливаем webhook только если есть APP_URL
+// Настраиваем webhook
 if (APP_URL) {
     const webhookUrl = `${APP_URL}/webhook/${token}`;
     bot.setWebHook(webhookUrl).then(() => {
@@ -35,9 +39,14 @@ if (APP_URL) {
 }
 
 // Обработчик webhook
-app.post(`/webhook/${token}`, (req, res) => {
-    bot.handleUpdate(req.body);
-    res.sendStatus(200);
+app.post(`/webhook/${token}`, async (req, res) => {
+    try {
+        await bot.processUpdate(req.body); // Используем processUpdate вместо handleUpdate
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('Error processing update:', error);
+        res.sendStatus(500);
+    }
 });
 
 // Обработка команды /start
@@ -103,6 +112,11 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
     } : undefined;
 
     bot.sendMessage(msg.from.id, welcomeMessage, keyboard);
+});
+
+// Добавляем общий обработчик сообщений для отладки
+bot.on('message', (msg) => {
+    console.log('Received message:', msg);
 });
 
 app.get('/', (req, res) => {
