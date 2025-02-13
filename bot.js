@@ -32,6 +32,12 @@ app.get('/', (req, res) => {
     res.send('Bot is running');
 });
 
+if (req.method === 'GET' && req.query.debug === 'true') {
+    const allReferrals = await Referral.find({});
+    console.log('All referrals in DB:', allReferrals);
+    return res.status(200).json(allReferrals);
+}
+
 app.post(`/webhook/${token}`, async (req, res) => {
     try {
         await bot.processUpdate(req.body);
@@ -65,11 +71,14 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             });
 
             // Отправляем запрос к новому API эндпоинту
+            // bot.js - modify the fetch request
             const response = await fetch(`${API_URL}/api/referrals`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Accept': 'application/json'
+                    'Accept': 'application/json',
+                    // Add authorization header if you have an API key
+                    'Authorization': `Bearer ${process.env.API_KEY}` // Add this to your .env file
                 },
                 body: JSON.stringify({
                     referrerId,
