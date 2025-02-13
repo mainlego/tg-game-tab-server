@@ -33,45 +33,64 @@ app.get('/', (req, res) => {
     res.send('Bot is running');
 });
 
+
+bot.on('message', (msg) => {
+    console.log('Received message:', msg);
+});
+
 // Обработка команды /start
 bot.onText(/\/start(.*)/, async (msg, match) => {
-    console.log('Received /start command with params:', match[1].trim());
+    console.log('Start command received', {
+        message: msg,
+        params: match,
+        from: msg.from
+    });
     const startParam = match[1].trim();
     const userId = msg.from.id;
 
     console.log('User ID:', userId);
 
+
+
     if (startParam.startsWith('ref_')) {
         const referrerId = startParam.substring(4);
-        console.log('Referrer ID:', referrerId);
+        console.log('Processing referral:', {
+            referrerId,
+            userId,
+            startParam
+        });
 
         try {
-            console.log('Attempting to save referral...');
+            const requestBody = {
+                referrerId,
+                userId,
+                userData: {
+                    first_name: msg.from.first_name,
+                    last_name: msg.from.last_name,
+                    username: msg.from.username
+                }
+            };
+
+            console.log('Sending request to API:', {
+                url: `${API_URL}/api/referrals`,
+                body: requestBody
+            });
+
             const response = await fetch(`${API_URL}/api/referrals`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    referrerId,
-                    userId,
-                    userData: {
-                        first_name: msg.from.first_name,
-                        last_name: msg.from.last_name,
-                        username: msg.from.username,
-                        photo_url: msg.from.photo_url
-                    }
-                })
+                body: JSON.stringify(requestBody)
             });
 
-            const responseText = await response.text();
-            console.log('API Response:', response.status, responseText);
-
-            if (!response.ok) {
-                console.error('Failed to save referral:', responseText);
-            }
+            const responseData = await response.text();
+            console.log('API Response:', {
+                status: response.status,
+                data: responseData
+            });
         } catch (error) {
-            console.error('Error saving referral:', error);
+            console.error('Error processing referral:', error);
         }
     }
 
