@@ -224,7 +224,42 @@ app.post('/api/users/actions', async (req, res) => {
 });
 
 
+// В bot.js
+app.put('/api/users/:telegramId', async (req, res) => {
+    try {
+        const { telegramId } = req.params;
+        const { gameData } = req.body;
 
+        const user = await User.findOneAndUpdate(
+            { telegramId: telegramId.toString() },
+            {
+                $set: {
+                    gameData,
+                    lastUpdate: new Date()
+                }
+            },
+            { new: true }
+        );
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'Пользователь не найден'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: user
+        });
+    } catch (error) {
+        console.error('Error updating user:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
 
 
 
