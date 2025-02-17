@@ -75,7 +75,7 @@ const wss = new WebSocketServer({ server });
 
 // Middleware
 app.use(cors({
-    origin: [WEBAPP_URL, 'http://localhost:3000'],
+    origin: [config.WEBAPP_URL, 'http://localhost:3000'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true
 }));
@@ -84,13 +84,15 @@ app.use(express.urlencoded({ extended: true }));
 
 // Логирование запросов
 app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`,
-        req.body ? JSON.stringify(req.body) : '');
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    if (Object.keys(req.body).length > 0) {
+        console.log('Request body:', req.body);
+    }
     next();
 });
 
 // Инициализация бота
-const bot = new TelegramBot(token, { webHook: true });
+const bot = new TelegramBot(config.TELEGRAM_BOT_TOKEN, { webHook: true });
 
 // WebSocket подключения
 const clients = new Map();
@@ -147,7 +149,7 @@ app.get('/api/admin/notifications', async (req, res) => {
             .sort({ createdAt: -1 });
         res.json({ success: true, data: notifications });
     } catch (error) {
-        console.error('[API] Error getting notifications:', error);
+        console.error('Error getting notifications:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -299,22 +301,23 @@ app.post('/api/notifications/test', async (req, res) => {
 });
 
 // Webhook для бота
-app.post(`/webhook/${token}`, async (req, res) => {
+app.post(`/webhook/${config.TELEGRAM_BOT_TOKEN}`, async (req, res) => {
     try {
         await bot.processUpdate(req.body);
         res.sendStatus(200);
     } catch (error) {
-        console.error('[Webhook] Error processing update:', error);
+        console.error('Webhook error:', error);
         res.sendStatus(500);
     }
 });
 
 // Команды бота
+// Обработчики команд бота
 bot.onText(/\/start(.*)/, async (msg, match) => {
     const startParam = match[1].trim();
     const userId = msg.from.id;
 
-    console.log('[Bot] Start command:', {
+    console.log('Start command received:', {
         param: startParam,
         user: msg.from
     });
@@ -322,7 +325,7 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
     if (startParam.startsWith('ref_')) {
         const referrerId = startParam.substring(4);
         try {
-            const referral = await Referral.create({
+            await Referral.create({
                 referrerId,
                 userId: userId.toString(),
                 userData: {
@@ -333,15 +336,11 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
                 }
             });
 
-            if (referral) {
-                const message = formatTelegramMessage(
-                    `🎉 У вас новый реферал: ${msg.from.first_name}!\nКогда он начнет играть, вы получите бонус.`,
-                    true
-                );
-                await bot.sendMessage(referrerId, message);
-            }
+            await bot.sendMessage(referrerId,
+                `🎉 У вас новый реферал: ${msg.from.first_name}!\nКогда он начнет играть, вы получите бонус.`
+            );
         } catch (error) {
-            console.error('[Bot] Error processing referral:', error);
+            console.error('Error processing referral:', error);
         }
     }
 
@@ -354,7 +353,7 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             inline_keyboard: [[
                 {
                     text: '🎮 Открыть игру',
-                    web_app: { url: WEBAPP_URL }
+                    web_app: { url: config.WEBAPP_URL }
                 }
             ]]
         }
@@ -363,16 +362,16 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
 
 // Обработка ошибок бота
 bot.on('error', (error) => {
-    console.error('[Bot] Error:', error);
+    console.error('Bot error:', error);
 });
 
 bot.on('webhook_error', (error) => {
-    console.error('[Bot] Webhook error:', error);
+    console.error('Webhook error:', error);
 });
 
 // Глобальная обработка ошибок
 app.use((err, req, res, next) => {
-    console.error('[Server] Error:', err);
+    console.error('Server error:', err);
     res.status(500).json({
         success: false,
         error: 'Internal Server Error'
@@ -382,65 +381,61 @@ app.use((err, req, res, next) => {
 // Запуск сервера
 const startServer = async () => {
     try {
-        // Подключение к базе данных
         await dbConnect();
-        console.log('[Server] Database connected successfully');
 
-        // Запуск HTTP сервера
-        server.listen(port, () => {
-            console.log(`[Server] Running on port ${port}`);
-            console.log('[Server] Environment:', {
-                WEBAPP_URL,
-                API_URL,
-                APP_URL
+        server.listen(config.PORT, () => {
+            console.log(`Server running on port ${config.PORT}`);
+            console.log('Environment:', {
+                WEBAPP_URL: config.WEBAPP_URL,
+                API_URL: config.API_URL,
+                APP_URL: config.APP_URL,
+                MONGODB_URI: 'Connected'
             });
         });
 
-        // Настройка вебхука
-        if (APP_URL) {
-            const webhookUrl = `${APP_URL}/webhook/${token}`;
+        if (config.APP_URL) {
+            const webhookUrl = `${config.APP_URL}/webhook/${config.TELEGRAM_BOT_TOKEN}`;
             await bot.setWebHook(webhookUrl);
-            console.log('[Bot] Webhook set:', webhookUrl);
+            console.log('Webhook set:', webhookUrl);
 
             const webhookInfo = await bot.getWebHookInfo();
-            console.log('[Bot] Webhook info:', webhookInfo);
-        } else {
-            console.warn('[Bot] APP_URL not set, webhook not configured');
+            console.log('Webhook info:', webhookInfo);
         }
     } catch (error) {
-        console.error('[Server] Startup error:', error);
+        console.error('Server startup error:', error);
         process.exit(1);
     }
 };
 
 // Graceful shutdown
 const shutdown = async () => {
-    console.log('[Server] Shutting down...');
+    console.log('Shutting down...');
     try {
         await bot.closeWebHook();
         server.close(() => {
-            console.log('[Server] Closed');
+            console.log('Server closed');
             process.exit(0);
         });
     } catch (error) {
-        console.error('[Server] Error during shutdown:', error);
+        console.error('Shutdown error:', error);
         process.exit(1);
     }
 };
 
+
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 process.on('uncaughtException', (error) => {
-    console.error('[Server] Uncaught exception:', error);
+    console.error('Uncaught exception:', error);
 });
 process.on('unhandledRejection', (error) => {
     console.error('[Server] Unhandled rejection:', error);
 });
 
 // Запуск
-console.log('[Server] Starting...');
+console.log('Starting server...');
 startServer().catch(error => {
-    console.error('[Server] Failed to start:', error);
+    console.error('Startup error:', error);
     process.exit(1);
 });
 
