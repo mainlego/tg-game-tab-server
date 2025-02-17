@@ -1,110 +1,312 @@
-// bot.js
+// server.js
 import dotenv from 'dotenv';
-import TelegramBot from 'node-telegram-bot-api';
-import fetch from 'node-fetch';
 import express from 'express';
+import cors from 'cors';
+import TelegramBot from 'node-telegram-bot-api';
+import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
 import dbConnect from './lib/dbConnect.js';
-import Referral from './models/Referral.js';  // Оставляем только один импорт
+import Notification from './models/Notification.js';
+import User from './models/User.js';
+import Referral from './models/Referral.js';
 
 dotenv.config();
 
-// Конфигурация и проверка переменных окружения
-const token = process.env.TELEGRAM_BOT_TOKEN || '';
-const WEBAPP_URL = process.env.WEBAPP_URL || '';
-const API_URL = process.env.API_URL || '';
-const APP_URL = process.env.APP_URL || '';
+// Конфигурация
+const token = process.env.TELEGRAM_BOT_TOKEN;
+const WEBAPP_URL = process.env.WEBAPP_URL;
+const API_URL = process.env.API_URL;
+const APP_URL = process.env.APP_URL;
 const port = process.env.PORT || 3000;
 
+// Проверка обязательных переменных окружения
 if (!token) {
     console.error('TELEGRAM_BOT_TOKEN is not defined');
     process.exit(1);
 }
 
-// Инициализация Express
+if (!MONGODB_URI) {
+    console.error('MONGODB_URI is not defined');
+    process.exit(1);
+}
+
+// Инициализация Express и WebSocket
 const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
+
+// Middleware
+app.use(cors({
+    origin: [WEBAPP_URL, 'http://localhost:3000'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
+}));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Логирование запросов
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`,
+        req.body ? JSON.stringify(req.body) : '');
+    next();
+});
 
 // Инициализация бота
-const bot = new TelegramBot(token, {
-    webHook: true
+const bot = new TelegramBot(token, { webHook: true });
+
+// WebSocket подключения
+const clients = new Map();
+
+wss.on('connection', (ws, req) => {
+    console.log('[WebSocket] New connection');
+    const userId = new URLSearchParams(req.url.slice(1)).get('userId');
+
+    if (userId) {
+        clients.set(userId, ws);
+        console.log(`[WebSocket] Client connected: ${userId}`);
+
+        ws.on('close', () => {
+            clients.delete(userId);
+            console.log(`[WebSocket] Client disconnected: ${userId}`);
+        });
+
+        ws.on('error', (error) => {
+            console.error(`[WebSocket] Error for client ${userId}:`, error);
+        });
+    }
 });
 
-// Основные обработчики маршрутов
-app.get('/', (req, res) => {
-    res.send('Bot is running');
+// Функции-помощники
+const sendWebSocketNotification = (userId, notification) => {
+    const ws = clients.get(userId.toString());
+    if (ws && ws.readyState === 1) {
+        try {
+            ws.send(JSON.stringify({
+                type: 'notification',
+                ...notification
+            }));
+            return true;
+        } catch (error) {
+            console.error(`[WebSocket] Error sending to ${userId}:`, error);
+            return false;
+        }
+    }
+    return false;
+};
+
+const formatTelegramMessage = (message, important = false, testMode = false) => {
+    let formattedMessage = '';
+    if (testMode) formattedMessage += '[TEST] ';
+    if (important) formattedMessage += '🔔 ВАЖНО!\n\n';
+    formattedMessage += message;
+    return formattedMessage;
+};
+
+// API маршруты
+app.get('/api/admin/notifications', async (req, res) => {
+    try {
+        const notifications = await Notification.find({})
+            .sort({ createdAt: -1 });
+        res.json({ success: true, data: notifications });
+    } catch (error) {
+        console.error('[API] Error getting notifications:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
+app.post('/api/notifications/send', async (req, res) => {
+    try {
+        const { type, message, important, conditions, button } = req.body;
+
+        // Находим целевых пользователей
+        let query = {};
+        if (type === 'level' && conditions?.minLevel) {
+            query['gameData.level.current'] = { $gte: conditions.minLevel };
+        }
+        if (type === 'income' && conditions?.minIncome) {
+            query['gameData.passiveIncome'] = { $gte: conditions.minIncome };
+        }
+
+        const users = await User.find(query).select('telegramId');
+        const userIds = users.map(user => user.telegramId);
+
+        // Создаем уведомление
+        const notification = await Notification.create({
+            type,
+            message,
+            important,
+            conditions,
+            button,
+            stats: {
+                targetCount: userIds.length,
+                sentCount: 0,
+                readCount: 0,
+                targetUsers: userIds
+            },
+            status: 'sending'
+        });
+
+        // Отправляем уведомления
+        let successCount = 0;
+        let failedCount = 0;
+        let failures = [];
+
+        const formattedMessage = formatTelegramMessage(message, important);
+        const options = {
+            parse_mode: 'HTML',
+            disable_web_page_preview: true
+        };
+
+        if (button?.text && button?.url) {
+            options.reply_markup = {
+                inline_keyboard: [[
+                    {
+                        text: button.text,
+                        url: button.url
+                    }
+                ]]
+            };
+        }
+
+        for (const userId of userIds) {
+            try {
+                // Отправка через Telegram
+                await bot.sendMessage(userId, formattedMessage, options);
+
+                // Отправка через WebSocket
+                sendWebSocketNotification(userId, {
+                    message: formattedMessage,
+                    important,
+                    button
+                });
+
+                successCount++;
+            } catch (error) {
+                console.error(`[Notification] Error sending to ${userId}:`, error);
+                failedCount++;
+                failures.push({ userId, error: error.message });
+            }
+
+            // Задержка между отправками
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+
+        // Обновляем статистику
+        await Notification.findByIdAndUpdate(notification._id, {
+            'stats.sentCount': successCount,
+            'stats.failedCount': failedCount,
+            status: 'sent',
+            sentAt: new Date()
+        });
+
+        res.json({
+            success: true,
+            data: {
+                notificationId: notification._id,
+                targetCount: userIds.length,
+                successCount,
+                failedCount,
+                failures
+            }
+        });
+    } catch (error) {
+        console.error('[API] Error sending notifications:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/notifications/test', async (req, res) => {
+    try {
+        const { message, important, button, testUserId } = req.body;
+
+        if (!testUserId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Test user ID is required'
+            });
+        }
+
+        const formattedMessage = formatTelegramMessage(message, important, true);
+        const options = {
+            parse_mode: 'HTML',
+            disable_web_page_preview: true
+        };
+
+        if (button?.text && button?.url) {
+            options.reply_markup = {
+                inline_keyboard: [[
+                    {
+                        text: button.text,
+                        url: button.url
+                    }
+                ]]
+            };
+        }
+
+        await bot.sendMessage(testUserId, formattedMessage, options);
+        sendWebSocketNotification(testUserId, {
+            message: formattedMessage,
+            important,
+            button
+        });
+
+        res.json({
+            success: true,
+            message: 'Test notification sent successfully'
+        });
+    } catch (error) {
+        console.error('[API] Error sending test notification:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Webhook для бота
 app.post(`/webhook/${token}`, async (req, res) => {
     try {
         await bot.processUpdate(req.body);
         res.sendStatus(200);
     } catch (error) {
-        console.error('Error processing update:', error);
+        console.error('[Webhook] Error processing update:', error);
         res.sendStatus(500);
     }
 });
 
-// Обработчики команд бота
+// Команды бота
 bot.onText(/\/start(.*)/, async (msg, match) => {
     const startParam = match[1].trim();
     const userId = msg.from.id;
 
-    console.log('Start command received:', {
+    console.log('[Bot] Start command:', {
         param: startParam,
         user: msg.from
     });
 
     if (startParam.startsWith('ref_')) {
         const referrerId = startParam.substring(4);
-
         try {
-            console.log('Processing referral:', {
+            const referral = await Referral.create({
                 referrerId,
-                userId,
-                userData: msg.from
+                userId: userId.toString(),
+                userData: {
+                    first_name: msg.from.first_name,
+                    last_name: msg.from.last_name,
+                    username: msg.from.username,
+                    language_code: msg.from.language_code
+                }
             });
 
-            const response = await fetch(`${API_URL}/api/referrals`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'Authorization': `Bearer ${process.env.API_KEY}`
-                },
-                body: JSON.stringify({
-                    referrerId,
-                    userId: userId.toString(),
-                    userData: {
-                        first_name: msg.from.first_name,
-                        last_name: msg.from.last_name,
-                        username: msg.from.username,
-                        language_code: msg.from.language_code
-                    }
-                })
-            });
-
-            const responseText = await response.text();
-            console.log('API Response:', response.status, responseText);
-
-            if (!response.ok) {
-                throw new Error(`API error: ${response.status} ${responseText}`);
-            }
-
-            const result = JSON.parse(responseText);
-            console.log('Referral saved:', result);
-
-            if (result.success) {
-                await bot.sendMessage(referrerId,
-                    `🎉 У вас новый реферал: ${msg.from.first_name}!\nКогда он начнет играть, вы получите бонус.`
+            if (referral) {
+                const message = formatTelegramMessage(
+                    `🎉 У вас новый реферал: ${msg.from.first_name}!\nКогда он начнет играть, вы получите бонус.`,
+                    true
                 );
+                await bot.sendMessage(referrerId, message);
             }
-
         } catch (error) {
-            console.error('Error processing referral:', error);
+            console.error('[Bot] Error processing referral:', error);
         }
     }
 
-    // Отправляем приветственное сообщение
     const welcomeMessage = startParam.startsWith('ref_')
         ? 'Добро пожаловать в игру! Вы присоединились по реферальной ссылке.'
         : 'Добро пожаловать в игру!';
@@ -114,99 +316,94 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             inline_keyboard: [[
                 {
                     text: '🎮 Открыть игру',
-                    web_app: {
-                        url: WEBAPP_URL,
-                        settings: {
-                            size: 'maximized'
-                        }
-                    }
+                    web_app: { url: WEBAPP_URL }
                 }
             ]]
         }
     });
 });
 
-// Общий обработчик сообщений для отладки
-bot.on('message', (msg) => {
-    console.log('Received message:', msg);
-});
-
-// Обработчики ошибок
+// Обработка ошибок бота
 bot.on('error', (error) => {
-    console.error('Bot error:', error);
+    console.error('[Bot] Error:', error);
 });
 
 bot.on('webhook_error', (error) => {
-    console.error('Webhook error:', error);
+    console.error('[Bot] Webhook error:', error);
 });
 
-// Функция запуска сервера
+// Глобальная обработка ошибок
+app.use((err, req, res, next) => {
+    console.error('[Server] Error:', err);
+    res.status(500).json({
+        success: false,
+        error: 'Internal Server Error'
+    });
+});
+
+// Запуск сервера
 const startServer = async () => {
     try {
-        // Подключаемся к базе данных
+        // Подключение к базе данных
         await dbConnect();
-        console.log('Database connected successfully');
+        console.log('[Server] Database connected successfully');
 
-        // Запускаем сервер
-        await new Promise((resolve) => {
-            const server = app.listen(port, () => {
-                console.log(`Server is running on port ${port}`);
-                console.log('Environment variables:', {
-                    WEBAPP_URL: WEBAPP_URL || 'Not set',
-                    API_URL: API_URL || 'Not set',
-                    APP_URL: APP_URL || 'Not set'
-                });
-                resolve(server);
-            });
-
-            server.on('error', (error) => {
-                console.error('Server error:', error);
-                if (error.code === 'EADDRINUSE') {
-                    console.error(`Port ${port} is already in use`);
-                    process.exit(1);
-                }
+        // Запуск HTTP сервера
+        server.listen(port, () => {
+            console.log(`[Server] Running on port ${port}`);
+            console.log('[Server] Environment:', {
+                WEBAPP_URL,
+                API_URL,
+                APP_URL
             });
         });
 
+        // Настройка вебхука
         if (APP_URL) {
             const webhookUrl = `${APP_URL}/webhook/${token}`;
-            try {
-                await bot.setWebHook(webhookUrl);
-                console.log('Webhook set successfully to:', webhookUrl);
+            await bot.setWebHook(webhookUrl);
+            console.log('[Bot] Webhook set:', webhookUrl);
 
-                const webhookInfo = await bot.getWebHookInfo();
-                console.log('Webhook info:', webhookInfo);
-            } catch (error) {
-                console.error('Error setting webhook:', error);
-            }
+            const webhookInfo = await bot.getWebHookInfo();
+            console.log('[Bot] Webhook info:', webhookInfo);
         } else {
-            console.warn('APP_URL is not set, webhook was not configured');
+            console.warn('[Bot] APP_URL not set, webhook not configured');
         }
     } catch (error) {
-        console.error('Error starting server:', error);
+        console.error('[Server] Startup error:', error);
         process.exit(1);
     }
 };
 
-// Обработка завершения работы
-const gracefulShutdown = async () => {
-    console.log('Received shutdown signal');
+// Graceful shutdown
+const shutdown = async () => {
+    console.log('[Server] Shutting down...');
     try {
         await bot.closeWebHook();
-        console.log('Webhook closed');
-        process.exit(0);
+        server.close(() => {
+            console.log('[Server] Closed');
+            process.exit(0);
+        });
     } catch (error) {
-        console.error('Error during shutdown:', error);
+        console.error('[Server] Error during shutdown:', error);
         process.exit(1);
     }
 };
 
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+process.on('uncaughtException', (error) => {
+    console.error('[Server] Uncaught exception:', error);
+});
+process.on('unhandledRejection', (error) => {
+    console.error('[Server] Unhandled rejection:', error);
+});
 
-// Запускаем сервер
-console.log('Starting server...');
+// Запуск
+console.log('[Server] Starting...');
 startServer().catch(error => {
-    console.error('Failed to start server:', error);
+    console.error('[Server] Failed to start:', error);
     process.exit(1);
 });
+
+export default server;
