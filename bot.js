@@ -1,25 +1,63 @@
-// server.js
+// bot.js - начало файла
 import dotenv from 'dotenv';
-import express from 'express';
-import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import TelegramBot from 'node-telegram-bot-api';
+import fetch from 'node-fetch';
+import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import dbConnect from './lib/dbConnect.js';
 import Notification from './models/Notification.js';
 import User from './models/User.js';
 import Referral from './models/Referral.js';
+import cors from 'cors';
 
-dotenv.config();
+// Настройка __dirname для ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Конфигурация
+// Загрузка переменных окружения
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+// Проверка и получение переменных окружения
+const config = {
+    TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
+    WEBAPP_URL: process.env.WEBAPP_URL,
+    API_URL: process.env.API_URL,
+    APP_URL: process.env.APP_URL,
+    MONGODB_URI: process.env.MONGODB_URI,
+    PORT: process.env.PORT || 3000
+};
+
+// Проверка обязательных переменных
+const requiredEnvVars = [
+    'TELEGRAM_BOT_TOKEN',
+    'MONGODB_URI',
+    'WEBAPP_URL',
+    'API_URL',
+    'APP_URL'
+];
+
+for (const envVar of requiredEnvVars) {
+    if (!config[envVar]) {
+        console.error(`Error: ${envVar} is not defined in environment variables`);
+        console.log('Current environment variables:', process.env);
+        process.exit(1);
+    }
+}
+
+
+
+// Конфигурация и проверка переменных окружения
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL;
 const API_URL = process.env.API_URL;
 const APP_URL = process.env.APP_URL;
+const MONGODB_URI = process.env.MONGODB_URI;
 const port = process.env.PORT || 3000;
 
-// Проверка обязательных переменных окружения
+// Проверяем обязательные переменные окружения
 if (!token) {
     console.error('TELEGRAM_BOT_TOKEN is not defined');
     process.exit(1);
