@@ -49,9 +49,15 @@ const clients = new Map();
 // Инициализация бота
 const bot = new TelegramBot(config.TELEGRAM_BOT_TOKEN, { webHook: true });
 
+app.options('*', cors()); // Обработка preflight запросов
+
 // Настройка CORS
 app.use(cors({
-    origin: [config.WEBAPP_URL, 'http://localhost:3000', 'https://v0-new-project-dqi1l3eck6k.vercel.app'],
+    origin: [
+        config.WEBAPP_URL,
+        'http://localhost:3000',
+        'https://v0-new-project-dqi1l3eck6k.vercel.app'  // Добавляем URL фронтенда
+    ],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true,
     optionsSuccessStatus: 200
@@ -141,6 +147,7 @@ app.get('/api/admin/notifications', async (req, res) => {
 
 // Отправка уведомлений
 app.post('/api/notifications/send', async (req, res) => {
+    console.log('Received notification request:', req.body);
     try {
         const { type, message, important, conditions, button } = req.body;
         console.log('Получен запрос на отправку уведомления:', req.body);
@@ -247,7 +254,10 @@ app.post('/api/notifications/send', async (req, res) => {
         });
     } catch (error) {
         console.error('Ошибка отправки уведомлений:', error);
-        res.status(500).json({ success: false, error: error.message });
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 
