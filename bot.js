@@ -114,6 +114,121 @@ wss.on('connection', (ws, req) => {
 });
 
 // API маршруты
+
+
+// В bot.js добавляем новый маршрут
+app.get('/api/users', async (req, res) => {
+    try {
+        const users = await User.find({})
+            .select('telegramId first_name last_name username gameData lastLogin registeredAt blocked');
+
+        // Форматируем данные для фронтенда
+        const formattedUsers = users.map(user => ({
+            id: user.telegramId,
+            name: `${user.first_name} ${user.last_name || ''}`.trim(),
+            level: user.gameData?.level?.current || 1,
+            passiveIncome: user.gameData?.passiveIncome || 0,
+            balance: user.gameData?.balance || 0,
+            lastLogin: user.lastLogin,
+            registeredAt: user.registeredAt,
+            blocked: user.blocked || false
+        }));
+
+        res.json({
+            success: true,
+            data: {
+                users: formattedUsers
+            }
+        });
+    } catch (error) {
+        console.error('Ошибка получения пользователей:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка получения пользователей'
+        });
+    }
+});
+
+// Добавляем маршрут для блокировки/разблокировки
+app.post('/api/users/actions', async (req, res) => {
+    try {
+        const { action, userId } = req.body;
+
+        const user = await User.findOne({ telegramId: userId });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'Пользователь не найден'
+            });
+        }
+
+        switch (action) {
+            case 'block':
+                user.blocked = !user.blocked;
+                await user.save();
+                break;
+
+            case 'reset':
+                user.gameData = {
+                    balance: 0,
+                    passiveIncome: 0,
+                    energy: {
+                        current: 1000,
+                        max: 1000,
+                        regenRate: 1,
+                        lastRegenTime: Date.now()
+                    },
+                    level: {
+                        current: 1,
+                        max: 10,
+                        progress: 0,
+                        title: 'Новичок'
+                    },
+                    multipliers: {
+                        tapValue: 1,
+                        tapMultiplier: 1,
+                        incomeBoost: 1
+                    },
+                    investments: {
+                        purchased: [],
+                        activeIncome: 0,
+                        lastCalculation: Date.now()
+                    },
+                    stats: {
+                        totalClicks: 0,
+                        totalEarned: 0,
+                        maxPassiveIncome: 0
+                    }
+                };
+                await user.save();
+                break;
+
+            default:
+                return res.status(400).json({
+                    success: false,
+                    error: 'Неверное действие'
+                });
+        }
+
+        res.json({
+            success: true,
+            data: user
+        });
+    } catch (error) {
+        console.error('Ошибка выполнения действия:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка выполнения действия'
+        });
+    }
+});
+
+
+
+
+
+
+
 // Получение игровых настроек
 app.get('/api/settings', async (req, res) => {
     try {
