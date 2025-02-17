@@ -28,7 +28,11 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.use(cors());
+app.use(cors({
+    origin: process.env.WEBAPP_URL,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
+}));
 app.use(express.json());
 
 // Хранение WebSocket подключений
