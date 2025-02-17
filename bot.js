@@ -84,31 +84,29 @@ app.use((req, res, next) => {
 });
 
 // Обработка WebSocket подключений
-// Обработка WebSocket подключений
 wss.on('connection', (ws, req) => {
     const userId = new URLSearchParams(req.url.slice(1)).get('userId');
+    console.log('WebSocket пытается подключиться с userId:', userId);
 
     if (userId) {
         clients.set(userId, ws);
-        console.log(`[WebSocket] Клиент подключен: ${userId}`);
+        console.log('Активные WebSocket подключения:', Array.from(clients.keys()));
 
-        // Отправляем тестовое сообщение для проверки соединения
-        ws.send(JSON.stringify({
-            type: 'connection_test',
-            message: 'WebSocket соединение установлено'
-        }));
-
-        ws.on('message', (message) => {
-            console.log(`[WebSocket] Получено сообщение от ${userId}:`, message);
-        });
+        // Отправляем тестовое сообщение для проверки
+        try {
+            ws.send(JSON.stringify({
+                type: 'test',
+                message: 'Тестовое сообщение',
+                timestamp: new Date().toISOString()
+            }));
+        } catch (error) {
+            console.error('Ошибка отправки тестового сообщения:', error);
+        }
 
         ws.on('close', () => {
             clients.delete(userId);
-            console.log(`[WebSocket] Клиент отключен: ${userId}`);
-        });
-
-        ws.on('error', (error) => {
-            console.error(`[WebSocket] Ошибка для клиента ${userId}:`, error);
+            console.log(`WebSocket отключен для пользователя ${userId}`);
+            console.log('Оставшиеся подключения:', Array.from(clients.keys()));
         });
     }
 });
@@ -160,7 +158,7 @@ app.get('/api/admin/notifications', async (req, res) => {
 app.post('/api/notifications/send', async (req, res) => {
     console.log('Received notification request:', req.body);
     try {
-        const { type, message, important, conditions, button } = req.body;
+        const { type, message, important, conditions } = req.body;
         console.log('Получен запрос на отправку уведомления:', req.body);
 
         // Поиск целевых пользователей
@@ -199,31 +197,22 @@ app.post('/api/notifications/send', async (req, res) => {
 
         // Отправка уведомлений
         for (const userId of userIds) {
-            try {
-                // WebSocket отправка
-                const ws = clients.get(userId.toString());
-                if (ws?.readyState === 1) {
+            const ws = clients.get(userId.toString());
+            console.log(`Проверка WebSocket для пользователя ${userId}:`, !!ws);
+
+            if (ws?.readyState === 1) {
+                try {
                     const notificationData = {
                         type: 'notification',
-                        message: formattedMessage,
+                        message,
                         important,
-                        button
+                        timestamp: new Date().toISOString()
                     };
-                    console.log(`Отправка WebSocket уведомления пользователю ${userId}:`, notificationData);
+                    console.log(`Отправка WebSocket уведомления для ${userId}:`, notificationData);
                     ws.send(JSON.stringify(notificationData));
-                } else {
-                    console.log(`WebSocket не доступен для пользователя ${userId}`);
+                } catch (error) {
+                    console.error(`Ошибка отправки WebSocket для ${userId}:`, error);
                 }
-
-                // Telegram отправка
-                await bot.sendMessage(userId, formattedMessage, options);
-                console.log(`Уведомление отправлено в Telegram пользователю ${userId}`);
-
-                successCount++;
-            } catch (error) {
-                console.error(`Ошибка отправки для ${userId}:`, error);
-                failedCount++;
-                failures.push({ userId, error: error.message });
             }
         }
 
