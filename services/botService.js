@@ -34,6 +34,16 @@ app.use(cors({
     credentials: true
 }));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Добавьте middleware для обработки ошибок
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({
+        success: false,
+        error: 'Internal Server Error'
+    });
+});
 
 // Хранение WebSocket подключений
 const clients = new Map();
