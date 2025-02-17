@@ -51,7 +51,7 @@ const bot = new TelegramBot(config.TELEGRAM_BOT_TOKEN, { webHook: true });
 
 // Настройка CORS
 app.use(cors({
-    origin: [config.WEBAPP_URL, 'http://localhost:3000'],
+    origin: [config.WEBAPP_URL, 'http://localhost:3000', 'https://v0-new-project-dqi1l3eck6k.vercel.app'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true,
     optionsSuccessStatus: 200
@@ -445,104 +445,6 @@ const startServer = async () => {
         console.error('Ошибка запуска сервера:', error);
         process.exit(1);
     }
-};
-
-// Корректное завершение работы
-const shutdown = async () => {
-    console.log('Завершение работы...');
-    try {
-        await bot.closeWebHook();
-        server.close(() => {
-            console.log('Сервер остановлен');
-            process.exit(0);
-        });
-    } catch (error) {
-        console.error('Ошибка при завершении работы:', error);
-        process.exit(1);
-    }
-};
-
-// Обработчики процесса
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-process.on('uncaughtException', (error) => {
-    console.error('Необработанное исключение:', error);
-});
-process.on('unhandledRejection', (error) => {
-    console.error('Необработанное отклонение промиса:', error);
-});
-
-// Запуск сервера
-console.log('Запуск сервера...');
-startServer().catch(error => {
-    console.error('Ошибка при запуске:', error);
-    process.exit(1);
-});
-
-export default server; `${config.APP_URL}/webhook/${config.TELEGRAM_BOT_TOKEN}`;
-try {
-    await bot.setWebHook(webhookUrl);
-    console.log('Webhook установлен:', webhookUrl);
-
-    const webhookInfo = await bot.getWebHookInfo();
-    console.log('Информация о webhook:', webhookInfo);
-} catch (error) {
-    console.error('Ошибка установки webhook:', error);
-}
-}
-} catch (error) {
-    console.error('Ошибка запуска сервера:', error);
-    process.exit(1);
-}
-};
-
-// Корректное завершение работы
-const shutdown = async () => {
-    console.log('Завершение работы...');
-    try {
-        await bot.closeWebHook();
-        server.close(() => {
-            console.log('Сервер остановлен');
-            process.exit(0);
-        });
-    } catch (error) {
-        console.error('Ошибка при завершении работы:', error);
-        process.exit(1);
-    }
-};
-
-// Обработчики процесса
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-process.on('uncaughtException', (error) => {
-    console.error('Необработанное исключение:', error);
-});
-process.on('unhandledRejection', (error) => {
-    console.error('Необработанное отклонение промиса:', error);
-});
-
-// Запуск сервера
-console.log('Запуск сервера...');
-startServer().catch(error => {
-    console.error('Ошибка при запуске:', error);
-    process.exit(1);
-});
-
-export default server; `${config.APP_URL}/webhook/${config.TELEGRAM_BOT_TOKEN}`;
-try {
-    await bot.setWebHook(webhookUrl);
-    console.log('Webhook установлен:', webhookUrl);
-
-    const webhookInfo = await bot.getWebHookInfo();
-    console.log('Информация о webhook:', webhookInfo);
-} catch (error) {
-    console.error('Ошибка установки webhook:', error);
-}
-}
-} catch (error) {
-    console.error('Ошибка запуска сервера:', error);
-    process.exit(1);
-}
 };
 
 // Корректное завершение работы
