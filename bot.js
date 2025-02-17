@@ -158,23 +158,28 @@ app.get('/api/admin/notifications', async (req, res) => {
 
 // Отправка уведомлений
 app.post('/api/notifications/send', async (req, res) => {
-    console.log('Received notification request:', req.body);
     try {
-        const { type, message, important, conditions, button } = req.body;
+        const { type, message, important, conditions } = req.body;
         console.log('Получен запрос на отправку уведомления:', req.body);
 
         // Поиск целевых пользователей
         let query = {};
-        if (type === 'level' && conditions?.minLevel) {
-            query['gameData.level.current'] = { $gte: conditions.minLevel };
-        }
-        if (type === 'income' && conditions?.minIncome) {
-            query['gameData.passiveIncome'] = { $gte: conditions.minIncome };
+        // Для type='all' не добавляем условия в query
+        if (type !== 'all') {
+            if (type === 'level' && conditions?.minLevel) {
+                query['gameData.level.current'] = { $gte: conditions.minLevel };
+            }
+            if (type === 'income' && conditions?.minIncome) {
+                query['gameData.passiveIncome'] = { $gte: conditions.minIncome };
+            }
         }
 
+        console.log('Поиск пользователей с query:', query);
         const users = await User.find(query).select('telegramId');
+        console.log('Найденные пользователи:', users);
+
         const userIds = users.map(user => user.telegramId);
-        console.log(`Найдено ${userIds.length} целевых пользователей`);
+        console.log('ID пользователей для отправки:', userIds);
 
         // Создание записи уведомления
         const notification = await Notification.create({
@@ -182,7 +187,6 @@ app.post('/api/notifications/send', async (req, res) => {
             message,
             important,
             conditions,
-            button,
             stats: {
                 targetCount: userIds.length,
                 sentCount: 0,
@@ -192,7 +196,6 @@ app.post('/api/notifications/send', async (req, res) => {
             status: 'sending'
         });
 
-        // Отправка уведомлений
         let successCount = 0;
         let failedCount = 0;
         let failures = [];
@@ -200,24 +203,34 @@ app.post('/api/notifications/send', async (req, res) => {
         // Отправка уведомлений
         for (const userId of userIds) {
             try {
-                // WebSocket отправка
+                // Настройки сообщения Telegram
+                const options = {
+                    parse_mode: 'HTML',
+                    disable_web_page_preview: true
+                };
+
+                // Форматирование сообщения
+                let formattedMessage = '';
+                if (important) formattedMessage += '🔔 ВАЖНО!\n\n';
+                formattedMessage += message;
+
+                // Отправка через Telegram
+                console.log(`Отправка уведомления в Telegram для ${userId}`);
+                await bot.sendMessage(userId, formattedMessage, options);
+
+                // Отправка через WebSocket
                 const ws = clients.get(userId.toString());
+                console.log(`Проверка WebSocket для ${userId}:`, !!ws);
                 if (ws?.readyState === 1) {
-                    const notificationData = {
+                    ws.send(JSON.stringify({
                         type: 'notification',
                         message: formattedMessage,
-                        important,
-                        button
-                    };
-                    console.log(`Отправка WebSocket уведомления пользователю ${userId}:`, notificationData);
-                    ws.send(JSON.stringify(notificationData));
+                        important
+                    }));
+                    console.log(`WebSocket уведомление отправлено для ${userId}`);
                 } else {
-                    console.log(`WebSocket не доступен для пользователя ${userId}`);
+                    console.log(`WebSocket недоступен для ${userId}`);
                 }
-
-                // Telegram отправка
-                await bot.sendMessage(userId, formattedMessage, options);
-                console.log(`Уведомление отправлено в Telegram пользователю ${userId}`);
 
                 successCount++;
             } catch (error) {
@@ -247,10 +260,7 @@ app.post('/api/notifications/send', async (req, res) => {
         });
     } catch (error) {
         console.error('Ошибка отправки уведомлений:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -328,6 +338,43 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
         param: startParam,
         user: msg.from
     });
+
+    // Создание или обновление пользователя
+    const userData = await User.findOneAndUpdate(
+        { telegramId: userId.toString() },
+        {
+            $setOnInsert: {
+                first_name: msg.from.first_name,
+                last_name: msg.from.last_name,
+                username: msg.from.username,
+                language_code: msg.from.language_code,
+                photo_url: null,
+                registeredAt: new Date(),
+                gameData: {
+                    balance: 0,
+                    passiveIncome: 0,
+                    energy: {
+                        current: 1000,
+                        max: 1000,
+                        regenRate: 1,
+                        lastRegenTime: Date.now()
+                    },
+                    level: {
+                        current: 1,
+                        max: 10,
+                        progress: 0,
+                        title: 'Новичок'
+                    }
+                }
+            },
+            $set: {
+                lastLogin: new Date()
+            }
+        },
+        { upsert: true, new: true }
+    );
+
+    console.log('Пользователь сохранен/обновлен:', userData);
 
     try {
         // Обработка реферальной системы
