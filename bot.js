@@ -56,7 +56,8 @@ app.use(cors({
     origin: [
         config.WEBAPP_URL,
         'http://localhost:3000',
-        'https://v0-new-project-dqi1l3eck6k.vercel.app'  // Добавляем URL фронтенда
+        'https://v0-new-project-dqi1l3eck6k.vercel.app',
+        /\.vercel\.app$/ // Разрешаем все поддомены vercel.app
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     credentials: true,
@@ -254,6 +255,93 @@ app.put('/api/users/:telegramId', async (req, res) => {
         });
     } catch (error) {
         console.error('Error updating user:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+
+// Добавьте в bot.js
+
+// Получение списка заданий
+app.get('/api/admin/tasks', async (req, res) => {
+    try {
+        // Здесь будет логика получения заданий из базы данных
+        // Пока возвращаем тестовые данные
+        const tasks = [
+            {
+                id: 1,
+                title: 'Ежедневное задание',
+                description: 'Описание задания',
+                reward: 100,
+                active: true,
+                completions: 0
+            }
+        ];
+
+        res.json({
+            success: true,
+            data: tasks
+        });
+    } catch (error) {
+        console.error('Error getting tasks:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Создание задания
+app.post('/api/admin/tasks', async (req, res) => {
+    try {
+        const taskData = req.body;
+        // Здесь будет логика создания задания в базе данных
+        res.json({
+            success: true,
+            data: taskData
+        });
+    } catch (error) {
+        console.error('Error creating task:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Обновление задания
+app.put('/api/admin/tasks/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const taskData = req.body;
+        // Здесь будет логика обновления задания в базе данных
+        res.json({
+            success: true,
+            data: { id, ...taskData }
+        });
+    } catch (error) {
+        console.error('Error updating task:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Удаление задания
+app.delete('/api/admin/tasks/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        // Здесь будет логика удаления задания из базы данных
+        res.json({
+            success: true,
+            data: {}
+        });
+    } catch (error) {
+        console.error('Error deleting task:', error);
         res.status(500).json({
             success: false,
             error: error.message
