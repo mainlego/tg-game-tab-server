@@ -84,12 +84,23 @@ app.use((req, res, next) => {
 });
 
 // Обработка WebSocket подключений
+// Обработка WebSocket подключений
 wss.on('connection', (ws, req) => {
     const userId = new URLSearchParams(req.url.slice(1)).get('userId');
 
     if (userId) {
         clients.set(userId, ws);
         console.log(`[WebSocket] Клиент подключен: ${userId}`);
+
+        // Отправляем тестовое сообщение для проверки соединения
+        ws.send(JSON.stringify({
+            type: 'connection_test',
+            message: 'WebSocket соединение установлено'
+        }));
+
+        ws.on('message', (message) => {
+            console.log(`[WebSocket] Получено сообщение от ${userId}:`, message);
+        });
 
         ws.on('close', () => {
             clients.delete(userId);
@@ -163,6 +174,7 @@ app.post('/api/notifications/send', async (req, res) => {
 
         const users = await User.find(query).select('telegramId');
         const userIds = users.map(user => user.telegramId);
+        console.log(`Найдено ${userIds.length} целевых пользователей`);
 
         // Создание записи уведомления
         const notification = await Notification.create({
@@ -185,43 +197,27 @@ app.post('/api/notifications/send', async (req, res) => {
         let failedCount = 0;
         let failures = [];
 
+        // Отправка уведомлений
         for (const userId of userIds) {
             try {
-                // Настройки сообщения Telegram
-                const options = {
-                    parse_mode: 'HTML',
-                    disable_web_page_preview: true
-                };
-
-                if (button?.text && button?.url) {
-                    options.reply_markup = {
-                        inline_keyboard: [[
-                            {
-                                text: button.text,
-                                url: button.url
-                            }
-                        ]]
-                    };
-                }
-
-                // Форматирование сообщения
-                let formattedMessage = '';
-                if (important) formattedMessage += '🔔 ВАЖНО!\n\n';
-                formattedMessage += message;
-
-                // Отправка через Telegram
-                await bot.sendMessage(userId, formattedMessage, options);
-
-                // Отправка через WebSocket
+                // WebSocket отправка
                 const ws = clients.get(userId.toString());
                 if (ws?.readyState === 1) {
-                    ws.send(JSON.stringify({
+                    const notificationData = {
                         type: 'notification',
                         message: formattedMessage,
                         important,
                         button
-                    }));
+                    };
+                    console.log(`Отправка WebSocket уведомления пользователю ${userId}:`, notificationData);
+                    ws.send(JSON.stringify(notificationData));
+                } else {
+                    console.log(`WebSocket не доступен для пользователя ${userId}`);
                 }
+
+                // Telegram отправка
+                await bot.sendMessage(userId, formattedMessage, options);
+                console.log(`Уведомление отправлено в Telegram пользователю ${userId}`);
 
                 successCount++;
             } catch (error) {
@@ -229,9 +225,6 @@ app.post('/api/notifications/send', async (req, res) => {
                 failedCount++;
                 failures.push({ userId, error: error.message });
             }
-
-            // Задержка между отправками
-            await new Promise(resolve => setTimeout(resolve, 50));
         }
 
         // Обновление статистики уведомления
