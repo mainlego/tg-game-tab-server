@@ -126,6 +126,423 @@ wss.on('connection', (ws, req) => {
 
 // API маршруты
 
+
+
+
+
+// Добавьте в bot.js
+
+// Получение всех продуктов
+app.get('/api/admin/products', async (req, res) => {
+    try {
+        const products = await Product.find({}).sort({ order: 1 });
+        res.json({
+            success: true,
+            data: products
+        });
+    } catch (error) {
+        console.error('Error getting products:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка получения продуктов'
+        });
+    }
+});
+
+// Создание продукта
+app.post('/api/admin/products', async (req, res) => {
+    try {
+        const productData = req.body;
+        const product = await Product.create(productData);
+
+        res.json({
+            success: true,
+            data: product
+        });
+    } catch (error) {
+        console.error('Error creating product:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка создания продукта'
+        });
+    }
+});
+
+// Обновление продукта
+app.put('/api/admin/products/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const productData = req.body;
+
+        const product = await Product.findByIdAndUpdate(
+            id,
+            productData,
+            { new: true }
+        );
+
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                error: 'Продукт не найден'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: product
+        });
+    } catch (error) {
+        console.error('Error updating product:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка обновления продукта'
+        });
+    }
+});
+
+// Удаление продукта
+app.delete('/api/admin/products/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const product = await Product.findByIdAndDelete(id);
+
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                error: 'Продукт не найден'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {}
+        });
+    } catch (error) {
+        console.error('Error deleting product:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка удаления продукта'
+        });
+    }
+});
+
+// Изменение порядка продуктов
+app.post('/api/admin/products/reorder', async (req, res) => {
+    try {
+        const { orderedIds } = req.body;
+
+        // Обновляем порядок для каждого продукта
+        for (let i = 0; i < orderedIds.length; i++) {
+            await Product.findByIdAndUpdate(
+                orderedIds[i],
+                { order: i }
+            );
+        }
+
+        res.json({
+            success: true,
+            message: 'Порядок продуктов обновлен'
+        });
+    } catch (error) {
+        console.error('Error reordering products:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка изменения порядка продуктов'
+        });
+    }
+});
+
+// API для заявок на продукты
+app.get('/api/admin/products/:productId/claims', async (req, res) => {
+    try {
+        const { productId } = req.params;
+
+        const claims = await ProductClaim.find({ productId })
+            .populate('productId')
+            .sort({ createdAt: -1 });
+
+        res.json({
+            success: true,
+            data: claims
+        });
+    } catch (error) {
+        console.error('Error getting product claims:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка получения заявок на продукт'
+        });
+    }
+});
+
+// Обновление статуса заявки
+app.put('/api/admin/products/claims/:claimId', async (req, res) => {
+    try {
+        const { claimId } = req.params;
+        const { status, note } = req.body;
+
+        const claim = await ProductClaim.findByIdAndUpdate(
+            claimId,
+            {
+                status,
+                note: note || ''
+            },
+            { new: true }
+        ).populate('productId');
+
+        if (!claim) {
+            return res.status(404).json({
+                success: false,
+                error: 'Заявка не найдена'
+            });
+        }
+
+        // Обновляем статистику продукта
+        if (status === 'completed' || status === 'cancelled') {
+            const updateField = status === 'completed' ?
+                'stats.completedClaims' : 'stats.cancelledClaims';
+
+            await Product.findByIdAndUpdate(
+                claim.productId._id,
+                { $inc: { [updateField]: 1 } }
+            );
+        }
+
+        // Уведомляем пользователя об изменении статуса
+        try {
+            let statusMessage = '';
+            switch (status) {
+                case 'processing':
+                    statusMessage = 'В процессе обработки';
+                    break;
+                case 'completed':
+                    statusMessage = 'Выполнена';
+                    break;
+                case 'cancelled':
+                    statusMessage = 'Отменена';
+                    break;
+                default:
+                    statusMessage = 'Обновлен';
+            }
+
+            const message = `🔔 Статус вашей заявки на "${claim.productId.name}" изменен: ${statusMessage}`;
+
+            // Отправка через Telegram
+            await bot.sendMessage(claim.userId, message);
+
+            // Отправка через WebSocket
+            const ws = clients.get(claim.userId);
+            if (ws && ws.readyState === 1) {
+                ws.send(JSON.stringify({
+                    type: 'claim_update',
+                    message,
+                    claim: {
+                        id: claim._id,
+                        status,
+                        productId: claim.productId._id
+                    }
+                }));
+            }
+        } catch (e) {
+            console.error('Error sending notification to user:', e);
+        }
+
+        res.json({
+            success: true,
+            data: claim
+        });
+    } catch (error) {
+        console.error('Error updating claim status:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка обновления статуса заявки'
+        });
+    }
+});
+
+// Получение последних заявок
+app.get('/api/admin/products/claims/recent', async (req, res) => {
+    try {
+        const claims = await ProductClaim.find({})
+            .populate('productId')
+            .sort({ createdAt: -1 })
+            .limit(10);
+
+        res.json({
+            success: true,
+            data: claims
+        });
+    } catch (error) {
+        console.error('Error getting recent claims:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка получения последних заявок'
+        });
+    }
+});
+
+// API для пользователей - получение доступных продуктов
+app.get('/api/products', async (req, res) => {
+    try {
+        const { telegramId } = req.query;
+
+        if (!telegramId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Требуется ID пользователя'
+            });
+        }
+
+        const user = await User.findOne({ telegramId });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'Пользователь не найден'
+            });
+        }
+
+        // Получаем только активные продукты
+        const products = await Product.find({ active: true }).sort({ order: 1 });
+
+        // Получаем пассивный доход пользователя
+        const passiveIncome = user.gameData?.passiveIncome || 0;
+
+        // Получаем заявки пользователя
+        const userClaims = await ProductClaim.find({ userId: telegramId });
+
+        // Форматируем продукты для пользователя
+        const formattedProducts = products.map(product => {
+            const userClaimsForProduct = userClaims.filter(
+                claim => claim.productId.toString() === product._id.toString()
+            );
+
+            return {
+                id: product._id,
+                name: product.name,
+                description: product.description,
+                type: product.type,
+                requiredIncome: product.requiredIncome,
+                image: product.image,
+                gradient: product.gradient,
+                claimInstructions: product.claimInstructions,
+                available: passiveIncome >= product.requiredIncome,
+                claims: userClaimsForProduct.map(claim => ({
+                    id: claim._id,
+                    status: claim.status,
+                    createdAt: claim.createdAt
+                }))
+            };
+        });
+
+        res.json({
+            success: true,
+            data: {
+                products: formattedProducts,
+                passiveIncome
+            }
+        });
+    } catch (error) {
+        console.error('Error getting products for user:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка получения продуктов'
+        });
+    }
+});
+
+// API для пользователей - создание заявки на продукт
+app.post('/api/products/:productId/claim', async (req, res) => {
+    try {
+        const { productId } = req.params;
+        const { telegramId, userData, claimData } = req.body;
+
+        if (!telegramId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Требуется ID пользователя'
+            });
+        }
+
+        const user = await User.findOne({ telegramId });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'Пользователь не найден'
+            });
+        }
+
+        const product = await Product.findById(productId);
+
+        if (!product) {
+            return res.status(404).json({
+                success: false,
+                error: 'Продукт не найден'
+            });
+        }
+
+        if (!product.active) {
+            return res.status(400).json({
+                success: false,
+                error: 'Продукт недоступен'
+            });
+        }
+
+        const passiveIncome = user.gameData?.passiveIncome || 0;
+
+        if (passiveIncome < product.requiredIncome) {
+            return res.status(400).json({
+                success: false,
+                error: 'Недостаточный пассивный доход'
+            });
+        }
+
+        // Создаем заявку
+        const claim = await ProductClaim.create({
+            userId: telegramId,
+            userData: userData || {
+                first_name: user.first_name,
+                last_name: user.last_name,
+                username: user.username,
+                language_code: user.language_code
+            },
+            productId,
+            claimData: claimData || {}
+        });
+
+        // Увеличиваем счетчик заявок у продукта
+        await Product.findByIdAndUpdate(
+            productId,
+            { $inc: { 'stats.claims': 1 } }
+        );
+
+        // Уведомляем админов о новой заявке
+        // Здесь можно добавить отправку уведомления администраторам
+
+        res.json({
+            success: true,
+            data: {
+                claim: {
+                    id: claim._id,
+                    status: claim.status,
+                    createdAt: claim.createdAt,
+                    productId
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error creating product claim:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Ошибка создания заявки на продукт'
+        });
+    }
+});
+
+
+
+
 // Маршрут для получения всех пользователей
 app.get('/api/users', async (req, res) => {
     try {
