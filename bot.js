@@ -548,9 +548,50 @@ app.post('/api/products/:productId/claim', async (req, res) => {
 // Маршрут для получения всех пользователей
 app.get('/api/users', async (req, res) => {
     try {
-        // Получаем пользователей из базы данных
-        const users = await User.find({})
-            .select('telegramId first_name last_name username gameData lastLogin registeredAt blocked');
+        // Получаем параметры запроса для фильтрации и постраничной навигации
+        const {
+            page = 1,
+            limit = 50,
+            search = '',
+            sortBy = 'lastLogin',
+            sortOrder = 'desc'
+        } = req.query;
+
+        // Создаем объект для фильтрации
+        const filterQuery = search ? {
+            $or: [
+                { first_name: { $regex: search, $options: 'i' } },
+                { last_name: { $regex: search, $options: 'i' } },
+                { username: { $regex: search, $options: 'i' } },
+                { telegramId: { $regex: search, $options: 'i' } }
+            ]
+        } : {};
+
+        // Определяем опции сортировки
+        const sortOptions = {};
+        switch (sortBy) {
+            case 'level':
+                sortOptions['gameData.level.current'] = sortOrder === 'asc' ? 1 : -1;
+                break;
+            case 'income':
+                sortOptions['gameData.passiveIncome'] = sortOrder === 'asc' ? 1 : -1;
+                break;
+            case 'registeredAt':
+                sortOptions['registeredAt'] = sortOrder === 'asc' ? 1 : -1;
+                break;
+            default:
+                sortOptions['lastLogin'] = sortOrder === 'asc' ? 1 : -1;
+        }
+
+        // Находим пользователей с пагинацией и фильтрацией
+        const users = await User.find(filterQuery)
+            .select('telegramId first_name last_name username photo_url language_code gameData lastLogin registeredAt blocked')
+            .sort(sortOptions)
+            .skip((page - 1) * limit)
+            .limit(Number(limit));
+
+        // Подсчет общего количества пользователей
+        const totalUsers = await User.countDocuments(filterQuery);
 
         // Расчет статистики
         const now = new Date();
@@ -558,36 +599,42 @@ app.get('/api/users', async (req, res) => {
         const weekAgo = new Date(now);
         weekAgo.setDate(weekAgo.getDate() - 7);
 
-        // Подсчет активных пользователей сегодня
-        const activeToday = users.filter(user => {
-            return user.lastLogin && new Date(user.lastLogin) >= todayStart;
-        }).length;
+        // Подсчет активных пользователей
+        const activeToday = await User.countDocuments({
+            ...filterQuery,
+            lastLogin: { $gte: todayStart }
+        });
 
-        // Подсчет новых пользователей на этой неделе
-        const newThisWeek = users.filter(user => {
-            return user.registeredAt && new Date(user.registeredAt) >= weekAgo;
-        }).length;
+        // Подсчет новых пользователей за неделю
+        const newThisWeek = await User.countDocuments({
+            ...filterQuery,
+            registeredAt: { $gte: weekAgo }
+        });
 
         // Расчет общего дохода
-        const totalIncome = users.reduce((sum, user) => {
-            return sum + (user.gameData?.passiveIncome || 0);
-        }, 0);
+        const totalIncomeResult = await User.aggregate([
+            { $match: filterQuery },
+            { $group: {
+                    _id: null,
+                    totalIncome: { $sum: '$gameData.passiveIncome' }
+                }}
+        ]);
+
+        const totalIncome = totalIncomeResult[0]?.totalIncome || 0;
 
         // Форматирование пользователей для фронтенда
         const formattedUsers = users.map(user => ({
             id: user.telegramId,
             name: `${user.first_name} ${user.last_name || ''}`.trim(),
             username: user.username,
+            photoUrl: user.photo_url,
+            languageCode: user.language_code,
             level: user.gameData?.level?.current || 1,
             passiveIncome: user.gameData?.passiveIncome || 0,
             balance: user.gameData?.balance || 0,
             lastLogin: user.lastLogin,
             registeredAt: user.registeredAt,
-            blocked: user.blocked || false,
-            // Включаем дополнительные поля для детального просмотра
-            energy: user.gameData?.energy || {},
-            stats: user.gameData?.stats || {},
-            investments: user.gameData?.investments || {}
+            blocked: user.blocked || false
         }));
 
         // Возвращаем данные в стандартизированном формате
@@ -595,8 +642,14 @@ app.get('/api/users', async (req, res) => {
             success: true,
             data: {
                 users: formattedUsers,
+                pagination: {
+                    currentPage: Number(page),
+                    totalPages: Math.ceil(totalUsers / limit),
+                    totalUsers,
+                    pageSize: Number(limit)
+                },
                 stats: {
-                    total: users.length,
+                    total: totalUsers,
                     activeToday,
                     newThisWeek,
                     totalIncome
@@ -604,10 +657,13 @@ app.get('/api/users', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Ошибка получения пользователей:', error);
+        console.error('Detailed error fetching users:', error);
+
+        // Логирование детальной информации об ошибке
         res.status(500).json({
             success: false,
-            error: 'Ошибка получения пользователей'
+            error: 'Failed to fetch users',
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 });
