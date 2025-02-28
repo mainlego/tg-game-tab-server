@@ -129,15 +129,35 @@ wss.on('connection', (ws, req) => {
 
 
 // В bot.js добавляем новый маршрут
+// Fix for the users API route in bot.js
 app.get('/api/users', async (req, res) => {
     try {
         const users = await User.find({})
             .select('telegramId first_name last_name username gameData lastLogin registeredAt blocked');
 
-        // Форматируем данные для фронтенда
+        // Calculate stats
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 7);
+
+        const activeToday = users.filter(user => {
+            return user.lastLogin && new Date(user.lastLogin) >= todayStart;
+        }).length;
+
+        const newThisWeek = users.filter(user => {
+            return user.registeredAt && new Date(user.registeredAt) >= weekAgo;
+        }).length;
+
+        const totalIncome = users.reduce((sum, user) => {
+            return sum + (user.gameData?.passiveIncome || 0);
+        }, 0);
+
+        // Format users for frontend
         const formattedUsers = users.map(user => ({
             id: user.telegramId,
             name: `${user.first_name} ${user.last_name || ''}`.trim(),
+            username: user.username,
             level: user.gameData?.level?.current || 1,
             passiveIncome: user.gameData?.passiveIncome || 0,
             balance: user.gameData?.balance || 0,
@@ -149,7 +169,13 @@ app.get('/api/users', async (req, res) => {
         res.json({
             success: true,
             data: {
-                users: formattedUsers
+                users: formattedUsers,
+                stats: {
+                    total: users.length,
+                    activeToday,
+                    newThisWeek,
+                    totalIncome
+                }
             }
         });
     } catch (error) {
