@@ -11,6 +11,8 @@ import Notification from './models/Notification.js';
 import User from './models/User.js';
 import Referral from './models/Referral.js';
 import cors from 'cors';
+import Product from './models/Product.js';
+import ProductClaim from './models/ProductClaim.js';
 
 // Настройка __dirname для ES modules
 const __filename = fileURLToPath(import.meta.url);
