@@ -126,66 +126,77 @@ wss.on('connection', (ws, req) => {
 });
 
 // API маршруты
+// Обновляем или добавляем маршрут для получения конкретного пользователя
+app.get('/api/users/:telegramId', async (req, res) => {
+    try {
+        const { telegramId } = req.params;
 
+        const user = await User.findOne({ telegramId: telegramId.toString() });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                error: 'Пользователь не найден'
+            });
+        }
 
 // В bot.js добавляем новый маршрут
 // Fix for the users API route in bot.js
-app.get('/api/users', async (req, res) => {
-    try {
-        const users = await User.find({})
-            .select('telegramId first_name last_name username gameData lastLogin registeredAt blocked');
+        pp.get('/api/users', async (req, res) => {
+            try {
+                // Получаем пользователей из базы данных
+                const users = await User.find({})
+                    .select('telegramId first_name last_name username gameData lastLogin registeredAt blocked');
 
-        // Calculate stats
-        const now = new Date();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const weekAgo = new Date(now);
-        weekAgo.setDate(weekAgo.getDate() - 7);
+                // Расчет статистики
+                const now = new Date();
+                const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const weekAgo = new Date(now);
+                weekAgo.setDate(weekAgo.getDate() - 7);
 
-        const activeToday = users.filter(user => {
-            return user.lastLogin && new Date(user.lastLogin) >= todayStart;
-        }).length;
+                // Подсчет активных пользователей сегодня
+                const activeToday = users.filter(user => {
+                    return user.lastLogin && new Date(user.lastLogin) >= todayStart;
+                }).length;
 
-        const newThisWeek = users.filter(user => {
-            return user.registeredAt && new Date(user.registeredAt) >= weekAgo;
-        }).length;
+                // Подсчет новых пользователей на этой неделе
+                const newThisWeek = users.filter(user => {
+                    return user.registeredAt && new Date(user.registeredAt) >= weekAgo;
+                }).length;
 
-        const totalIncome = users.reduce((sum, user) => {
-            return sum + (user.gameData?.passiveIncome || 0);
-        }, 0);
+                // Расчет общего дохода
+                const totalIncome = users.reduce((sum, user) => {
+                    return sum + (user.gameData?.passiveIncome || 0);
+                }, 0);
 
-        // Format users for frontend
-        const formattedUsers = users.map(user => ({
-            id: user.telegramId,
-            name: `${user.first_name} ${user.last_name || ''}`.trim(),
-            username: user.username,
-            level: user.gameData?.level?.current || 1,
-            passiveIncome: user.gameData?.passiveIncome || 0,
-            balance: user.gameData?.balance || 0,
-            lastLogin: user.lastLogin,
-            registeredAt: user.registeredAt,
-            blocked: user.blocked || false
-        }));
+                // Форматирование пользователей для фронтенда
+                const formattedUser = {
+                    id: user.telegramId,
+                    name: `${user.first_name} ${user.last_name || ''}`.trim(),
+                    username: user.username,
+                    level: user.gameData?.level?.current || 1,
+                    passiveIncome: user.gameData?.passiveIncome || 0,
+                    balance: user.gameData?.balance || 0,
+                    lastLogin: user.lastLogin,
+                    registeredAt: user.registeredAt,
+                    blocked: user.blocked || false,
+                    energy: user.gameData?.energy || {},
+                    stats: user.gameData?.stats || {},
+                    investments: user.gameData?.investments || {}
+                };
 
-        res.json({
-            success: true,
-            data: {
-                users: formattedUsers,
-                stats: {
-                    total: users.length,
-                    activeToday,
-                    newThisWeek,
-                    totalIncome
-                }
+                res.json({
+                    success: true,
+                    data: formattedUser
+                });
+            } catch (error) {
+                console.error('Ошибка получения пользователя:', error);
+                res.status(500).json({
+                    success: false,
+                    error: 'Ошибка получения пользователя'
+                });
             }
         });
-    } catch (error) {
-        console.error('Ошибка получения пользователей:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Ошибка получения пользователей'
-        });
-    }
-});
 
 // Добавляем маршрут для блокировки/разблокировки
 app.post('/api/users/actions', async (req, res) => {
