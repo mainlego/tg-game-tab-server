@@ -57,13 +57,13 @@ app.options('*', cors()); // Обработка preflight запросов
 app.use(cors({
     origin: [
         config.WEBAPP_URL,
-        'http://localhost:3000',
-        'https://v0-new-project-dqi1l3eck6k.vercel.app',
-        /\.vercel\.app$/ // Разрешаем все поддомены vercel.app
+        'http://localhost:5173', // Для разработки фронтенда
+        'http://localhost:5174',
+        /\.vercel\.app$/
     ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true,
-    optionsSuccessStatus: 200
+    allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // На сервере Node.js/Express
@@ -135,38 +135,40 @@ wss.on('connection', (ws, req) => {
 // Добавьте в bot.js
 
 // Получение всех продуктов
+// Обработчик для получения продуктов
 app.get('/api/admin/products', async (req, res) => {
     try {
         const products = await Product.find({}).sort({ order: 1 });
-        res.json({
-            success: true,
-            data: products
-        });
+
+        // Добавляем статистику по заявкам, если необходимо
+        for (const product of products) {
+            // Если статистика не заполнена, делаем запрос к БД
+            if (!product.stats || typeof product.stats.claims === 'undefined') {
+                const claimsCount = await ProductClaim.countDocuments({ productId: product._id });
+                const completedCount = await ProductClaim.countDocuments({
+                    productId: product._id,
+                    status: 'completed'
+                });
+                const cancelledCount = await ProductClaim.countDocuments({
+                    productId: product._id,
+                    status: 'cancelled'
+                });
+
+                // Обновляем статистику в базе
+                product.stats = {
+                    claims: claimsCount,
+                    completedClaims: completedCount,
+                    cancelledClaims: cancelledCount
+                };
+
+                await product.save();
+            }
+        }
+
+        res.json({ success: true, data: products });
     } catch (error) {
         console.error('Error getting products:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Ошибка получения продуктов'
-        });
-    }
-});
-
-// Создание продукта
-app.post('/api/admin/products', async (req, res) => {
-    try {
-        const productData = req.body;
-        const product = await Product.create(productData);
-
-        res.json({
-            success: true,
-            data: product
-        });
-    } catch (error) {
-        console.error('Error creating product:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Ошибка создания продукта'
-        });
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -1276,6 +1278,63 @@ const startServer = async () => {
         process.exit(1);
     }
 };
+
+
+
+// Обработчик для получения пользователей с пагинацией и фильтрацией
+app.get('/api/admin/users', async (req, res) => {
+    try {
+        const { page = 1, limit = 50, search = '' } = req.query;
+
+        // Создаем фильтр поиска
+        const searchFilter = search ? {
+            $or: [
+                { first_name: { $regex: search, $options: 'i' } },
+                { last_name: { $regex: search, $options: 'i' } },
+                { username: { $regex: search, $options: 'i' } },
+                { telegramId: { $regex: search, $options: 'i' } }
+            ]
+        } : {};
+
+        // Получаем пользователей с пагинацией
+        const users = await User.find(searchFilter)
+            .select('telegramId first_name last_name username photo_url gameData lastLogin registeredAt blocked')
+            .sort({ lastLogin: -1 })
+            .skip((page - 1) * limit)
+            .limit(Number(limit));
+
+        const totalUsers = await User.countDocuments(searchFilter);
+
+        // Форматируем данные для фронтенда
+        const formattedUsers = users.map(user => ({
+            id: user.telegramId,
+            name: `${user.first_name} ${user.last_name || ''}`.trim(),
+            username: user.username,
+            level: user.gameData?.level?.current || 1,
+            passiveIncome: user.gameData?.passiveIncome || 0,
+            balance: user.gameData?.balance || 0,
+            lastLogin: user.lastLogin,
+            registeredAt: user.registeredAt,
+            blocked: user.blocked || false
+        }));
+
+        res.json({
+            success: true,
+            data: {
+                users: formattedUsers,
+                pagination: {
+                    currentPage: Number(page),
+                    totalPages: Math.ceil(totalUsers / limit),
+                    totalUsers
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error getting users:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 
 // Корректное завершение работы
 const shutdown = async () => {
