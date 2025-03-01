@@ -1,50 +1,35 @@
 // routes/notificationRoutes.js
 import express from 'express';
-import Notification from '../models/Notification.js';
 import User from '../models/User.js';
+import Notification from '../models/Notification.js';
 
 const router = express.Router();
 
-// Helper function to format Telegram message
-const formatTelegramMessage = (message, important = false, testMode = false) => {
-    let formattedMessage = '';
-    if (testMode) formattedMessage += '[TEST] ';
-    if (important) formattedMessage += '🔔 ВАЖНО!\n\n';
-    formattedMessage += message;
-    return formattedMessage;
-};
-
-// Get all notifications
-router.get('/admin/notifications', async (req, res) => {
-    try {
-        const notifications = await Notification.find({})
-            .sort({ createdAt: -1 });
-        res.json({ success: true, data: notifications });
-    } catch (error) {
-        console.error('Error getting notifications:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Send notification
-router.post('/notifications/send', async (req, res) => {
+// Отправка уведомления
+router.post('/send', async (req, res) => {
     try {
         const { type, message, important, conditions, button } = req.body;
-        console.log('Received notification request:', req.body);
+        console.log('Получен запрос на отправку уведомления:', req.body);
 
-        // Find target users
+        // Поиск целевых пользователей
         let query = {};
-        if (type === 'level' && conditions?.minLevel) {
-            query['gameData.level.current'] = { $gte: conditions.minLevel };
-        }
-        if (type === 'income' && conditions?.minIncome) {
-            query['gameData.passiveIncome'] = { $gte: conditions.minIncome };
+        // Для type='all' не добавляем условия в query
+        if (type !== 'all') {
+            if (type === 'level' && conditions?.minLevel) {
+                query['gameData.level.current'] = { $gte: conditions.minLevel };
+            }
+            if (type === 'income' && conditions?.minIncome) {
+                query['gameData.passiveIncome'] = { $gte: conditions.minIncome };
+            }
         }
 
+        console.log('Поиск пользователей с query:', query);
         const users = await User.find(query).select('telegramId');
+        console.log('Найденные пользователи:', users.length);
+
         const userIds = users.map(user => user.telegramId);
 
-        // Create notification record
+        // Создание записи уведомления
         const notification = await Notification.create({
             type,
             message,
@@ -52,42 +37,49 @@ router.post('/notifications/send', async (req, res) => {
             conditions,
             button,
             stats: {
-                targetCount: userIds.length,
                 sentCount: 0,
                 readCount: 0,
+                failedCount: 0,
                 targetUsers: userIds
             },
             status: 'sending'
         });
 
-        const formattedMessage = formatTelegramMessage(message, important);
-        const options = {
-            parse_mode: 'HTML',
-            disable_web_page_preview: true
-        };
-
-        if (button?.text && button?.url) {
-            options.reply_markup = {
-                inline_keyboard: [[
-                    {
-                        text: button.text,
-                        url: button.url
-                    }
-                ]]
-            };
-        }
-
-        // Send notifications
         let successCount = 0;
         let failedCount = 0;
         let failures = [];
 
+        // Отправка уведомлений
         for (const userId of userIds) {
             try {
-                // Send via Telegram
+                // Настройки сообщения Telegram
+                const options = {
+                    parse_mode: 'HTML',
+                    disable_web_page_preview: true
+                };
+
+                // Добавляем кнопку, если она указана
+                if (button?.text && button?.url) {
+                    options.reply_markup = {
+                        inline_keyboard: [[
+                            {
+                                text: button.text,
+                                url: button.url
+                            }
+                        ]]
+                    };
+                }
+
+                // Форматирование сообщения
+                let formattedMessage = '';
+                if (important) formattedMessage += '🔔 ВАЖНО!\n\n';
+                formattedMessage += message;
+
+                // Отправка через Telegram
+                console.log(`Отправка уведомления в Telegram для ${userId}`);
                 await req.bot.sendMessage(userId, formattedMessage, options);
 
-                // Send via WebSocket if available
+                // Отправка через WebSocket
                 const ws = req.clients.get(userId.toString());
                 if (ws?.readyState === 1) {
                     ws.send(JSON.stringify({
@@ -100,16 +92,16 @@ router.post('/notifications/send', async (req, res) => {
 
                 successCount++;
             } catch (error) {
-                console.error(`Error sending to ${userId}:`, error);
+                console.error(`Ошибка отправки для ${userId}:`, error);
                 failedCount++;
                 failures.push({ userId, error: error.message });
             }
 
-            // Add delay between sends
+            // Добавляем паузу между отправками
             await new Promise(resolve => setTimeout(resolve, 50));
         }
 
-        // Update notification stats
+        // Обновление статистики уведомления
         await Notification.findByIdAndUpdate(notification._id, {
             'stats.sentCount': successCount,
             'stats.failedCount': failedCount,
@@ -128,29 +120,52 @@ router.post('/notifications/send', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error sending notifications:', error);
-        res.status(500).json({ success: false, error: error.message });
+        console.error('Ошибка отправки уведомлений:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 
-// Test notification
-router.post('/notifications/test', async (req, res) => {
+// Тестовая отправка уведомления
+router.post('/test', async (req, res) => {
     try {
         const { message, important, button, testUserId } = req.body;
 
         if (!testUserId) {
             return res.status(400).json({
                 success: false,
-                error: 'Test user ID is required'
+                error: 'Требуется ID тестового пользователя'
             });
         }
 
-        const formattedMessage = formatTelegramMessage(message, important, true);
+        // Создаем тестовое уведомление в базе
+        const notification = await Notification.create({
+            type: 'test',
+            message,
+            important,
+            button,
+            stats: {
+                sentCount: 0,
+                readCount: 0,
+                failedCount: 0
+            },
+            status: 'sending'
+        });
+
+        // Форматируем сообщение
+        let formattedMessage = '[ТЕСТ] ';
+        if (important) formattedMessage += '🔔 ВАЖНО!\n\n';
+        formattedMessage += message;
+
+        // Настройки сообщения
         const options = {
             parse_mode: 'HTML',
             disable_web_page_preview: true
         };
 
+        // Добавляем кнопку, если она указана
         if (button?.text && button?.url) {
             options.reply_markup = {
                 inline_keyboard: [[
@@ -162,9 +177,10 @@ router.post('/notifications/test', async (req, res) => {
             };
         }
 
+        // Отправка через Telegram
         await req.bot.sendMessage(testUserId, formattedMessage, options);
 
-        // Send via WebSocket if available
+        // Отправка через WebSocket
         const ws = req.clients.get(testUserId.toString());
         if (ws?.readyState === 1) {
             ws.send(JSON.stringify({
@@ -175,13 +191,110 @@ router.post('/notifications/test', async (req, res) => {
             }));
         }
 
+        // Обновляем статус уведомления
+        await Notification.findByIdAndUpdate(notification._id, {
+            status: 'sent',
+            sentAt: new Date(),
+            'stats.sentCount': 1
+        });
+
         res.json({
             success: true,
-            message: 'Test notification sent successfully'
+            data: {
+                notificationId: notification._id,
+                message: 'Тестовое уведомление успешно отправлено'
+            }
         });
     } catch (error) {
-        console.error('Error sending test notification:', error);
-        res.status(500).json({ success: false, error: error.message });
+        console.error('Ошибка отправки тестового уведомления:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Планирование уведомления (для будущего использования)
+router.post('/schedule', async (req, res) => {
+    try {
+        const { type, message, important, conditions, button, scheduledFor } = req.body;
+
+        if (!scheduledFor) {
+            return res.status(400).json({
+                success: false,
+                error: 'Требуется дата планирования уведомления'
+            });
+        }
+
+        // Создание записи запланированного уведомления
+        const notification = await Notification.create({
+            type,
+            message,
+            important,
+            conditions,
+            button,
+            scheduledFor: new Date(scheduledFor),
+            status: 'scheduled'
+        });
+
+        res.status(201).json({
+            success: true,
+            data: notification
+        });
+    } catch (error) {
+        console.error('Ошибка планирования уведомления:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// Отметка уведомления как прочитанного
+router.post('/:id/read', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { userId } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                error: 'Требуется ID пользователя'
+            });
+        }
+
+        const notification = await Notification.findById(id);
+        if (!notification) {
+            return res.status(404).json({
+                success: false,
+                error: 'Уведомление не найдено'
+            });
+        }
+
+        // Проверяем, был ли этот пользователь в списке целевых и не отмечал ли он уже уведомление как прочитанное
+        if (!notification.stats.readBy) {
+            notification.stats.readBy = [];
+        }
+
+        // Если пользователь еще не отметил уведомление как прочитанное
+        if (!notification.stats.readBy.includes(userId)) {
+            notification.stats.readBy.push(userId);
+            notification.stats.readCount = notification.stats.readBy.length;
+            await notification.save();
+        }
+
+        res.json({
+            success: true,
+            data: {
+                readCount: notification.stats.readCount
+            }
+        });
+    } catch (error) {
+        console.error('Ошибка отметки уведомления как прочитанного:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 
