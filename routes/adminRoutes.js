@@ -269,8 +269,12 @@ router.post('/products', async (req, res) => {
 
         res.status(201).json({ success: true, data: product });
     } catch (error) {
-        console.error('Ошибка создания продукта:', error);
-        res.status(400).json({ success: false, error: error.message });
+        console.error('Detailed error:', error);
+        res.status(400).json({
+            success: false,
+            error: error.message,
+            details: error.stack
+        });
     }
 });
 
