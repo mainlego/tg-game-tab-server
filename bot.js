@@ -41,6 +41,7 @@ app.use(cors({
         'http://localhost:5173',
         'http://localhost:5174',
         'http://localhost:5175',
+        'https://v0-new-project-dqi1l3eck6k.vercel.app/',  // Добавьте ваш хост здесь
         /\.vercel\.app$/
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
