@@ -34,33 +34,22 @@ const wss = new WebSocketServer({ server });
 // Хранилище WebSocket клиентов
 const clients = new Map();
 
-// Настройка CORS
-app.use(cors({
-    origin: [
-        config.WEBAPP_URL,
-        'http://localhost:5173',
-        'http://localhost:5174',
-        'http://localhost:5175',
-        'https://v0-new-project-dqi1l3eck6k.vercel.app',  // Добавьте ваш хост здесь
-        /\.vercel\.app$/
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
-    preflightContinue: false,
-    optionsSuccessStatus: 204
-}));
+// ВАЖНО: Удаляем прежние CORS-настройки и используем только один подход
+// для предотвращения конфликтов между разными middleware
 
-// На сервере (только для тестирования!)
+// Полностью отключаем CORS-ограничения для тестирования
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With');
+
+    // Обработка preflight запросов OPTIONS
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
     next();
 });
-
-// Обработка preflight запросов OPTIONS
-app.options('*', cors());
 
 // Логирование запросов
 app.use((req, res, next) => {
