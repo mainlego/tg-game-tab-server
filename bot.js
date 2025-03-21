@@ -51,6 +51,14 @@ app.use(cors({
     optionsSuccessStatus: 204
 }));
 
+// На сервере (только для тестирования!)
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
+    next();
+});
+
 // Обработка preflight запросов OPTIONS
 app.options('*', cors());
 
