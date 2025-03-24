@@ -20,6 +20,7 @@ import Referral from './models/Referral.js';
 // Импорт маршрутов
 import adminRoutes from './routes/adminRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import settingsRoutes from './routes/settingsRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 
 // Настройка __dirname для ES modules
@@ -88,6 +89,7 @@ app.use((req, res, next) => {
 app.use('/api/admin', adminRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/settings', settingsRoutes); // Добавьте эту строку
 
 // Обработка WebSocket подключений
 wss.on('connection', (ws, req) => {
@@ -259,6 +261,11 @@ const startServer = async () => {
                 MONGODB_URI: 'Connected'
             });
         });
+
+        // Инициализация настроек по умолчанию
+        const GameSettings = (await import('./models/GameSettings.js')).default;
+        await GameSettings.getDefaultSettings();
+        console.log('Настройки игры инициализированы');
 
         if (config.APP_URL) {
             const webhookUrl = `${config.APP_URL}/webhook/${config.TELEGRAM_BOT_TOKEN}`;
