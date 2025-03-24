@@ -133,33 +133,53 @@ router.get('/users/:id', async (req, res) => {
 router.put('/users/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        console.log(`Запрос на обновление пользователя ${id}`);
 
-        // Проверяем размер данных
-        const bodySize = JSON.stringify(req.body).length;
-        console.log(`Размер данных PUT-запроса: ${bodySize} байт`);
-
-        // Проверяем наличие пользователя перед обновлением
-        const existingUser = await User.findOne({ telegramId: id });
-        if (!existingUser) {
-            return res.status(404).json({ success: false, message: 'Пользователь не найден' });
+        // Проверка на валидность данных
+        if (!req.body.gameData) {
+            return res.status(400).json({
+                success: false,
+                message: 'Отсутствуют gameData в запросе'
+            });
         }
 
-        // Обработка gameData для предотвращения ошибок
+        // Обновляем пользователя стратегией слияния
+        const update = {};
+
+        // Обновляем только переданные поля в gameData
         if (req.body.gameData) {
-            // Удаляем проблемные поля или глубокие вложенные структуры
-            if (req.body.gameData.level && req.body.gameData.level.levels) {
-                // Ограничиваем количество уровней
-                req.body.gameData.level.levels = req.body.gameData.level.levels.slice(0, 10);
+            update['gameData.balance'] = req.body.gameData.balance;
+            update['gameData.passiveIncome'] = req.body.gameData.passiveIncome;
+
+            if (req.body.gameData.level) {
+                update['gameData.level.current'] = req.body.gameData.level.current;
+                update['gameData.level.progress'] = req.body.gameData.level.progress;
+                update['gameData.level.title'] = req.body.gameData.level.title;
             }
+
+            // Обновляем другие поля только если они переданы
+            // ...
         }
 
-        // Обновляем пользователя
+        // Обновляем lastLogin
+        if (req.body.lastLogin) {
+            update.lastLogin = new Date(req.body.lastLogin);
+        }
+
         const user = await User.findOneAndUpdate(
             { telegramId: id },
-            req.body,
+            { $set: update },
             { new: true }
         );
 
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'Пользователь не найден'
+            });
+        }
+
+        console.log(`Пользователь ${id} успешно обновлен`);
         res.json({ success: true, data: user });
     } catch (error) {
         console.error('Ошибка обновления пользователя:', error);
