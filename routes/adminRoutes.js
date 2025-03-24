@@ -129,18 +129,36 @@ router.get('/users/:id', async (req, res) => {
 });
 
 // Обновление пользователя
+// Обновление пользователя
 router.put('/users/:id', async (req, res) => {
     try {
         const { id } = req.params;
+
+        // Проверяем размер данных
+        const bodySize = JSON.stringify(req.body).length;
+        console.log(`Размер данных PUT-запроса: ${bodySize} байт`);
+
+        // Проверяем наличие пользователя перед обновлением
+        const existingUser = await User.findOne({ telegramId: id });
+        if (!existingUser) {
+            return res.status(404).json({ success: false, message: 'Пользователь не найден' });
+        }
+
+        // Обработка gameData для предотвращения ошибок
+        if (req.body.gameData) {
+            // Удаляем проблемные поля или глубокие вложенные структуры
+            if (req.body.gameData.level && req.body.gameData.level.levels) {
+                // Ограничиваем количество уровней
+                req.body.gameData.level.levels = req.body.gameData.level.levels.slice(0, 10);
+            }
+        }
+
+        // Обновляем пользователя
         const user = await User.findOneAndUpdate(
             { telegramId: id },
             req.body,
             { new: true }
         );
-
-        if (!user) {
-            return res.status(404).json({ success: false, message: 'Пользователь не найден' });
-        }
 
         res.json({ success: true, data: user });
     } catch (error) {
