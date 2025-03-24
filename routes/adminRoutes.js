@@ -10,6 +10,16 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 
+const router = express.Router();
+
+// Фильтр файлов (только изображения)
+const fileFilter = (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+    } else {
+        cb(new Error('Разрешены только изображения!'), false);
+    }
+};
 
 // Конфигурация хранилища для multer
 const storage = multer.diskStorage({
@@ -105,18 +115,6 @@ router.put('/tasks/:id/upload', upload.single('taskImage'), async (req, res) => 
         res.status(400).json({ success: false, error: error.message });
     }
 });
-
-// Фильтр файлов (только изображения)
-const fileFilter = (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-        cb(null, true);
-    } else {
-        cb(new Error('Разрешены только изображения!'), false);
-    }
-};
-
-
-const router = express.Router();
 
 // ПОЛЬЗОВАТЕЛИ
 // ============
@@ -238,7 +236,6 @@ router.get('/users/:id', async (req, res) => {
     }
 });
 
-// Обновление пользователя
 // Обновление пользователя
 router.put('/users/:id', async (req, res) => {
     try {
