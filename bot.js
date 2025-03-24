@@ -52,6 +52,10 @@ app.use((req, res, next) => {
     next();
 });
 
+
+// Статический маршрут для доступа к загруженным файлам
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
 // Логирование запросов
 app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);

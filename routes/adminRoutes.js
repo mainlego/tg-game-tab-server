@@ -6,6 +6,116 @@ import ProductClaim from '../models/ProductClaim.js';
 import Notification from '../models/Notification.js';
 import Task from '../models/Task.js';
 
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+
+
+// Конфигурация хранилища для multer
+const storage = multer.diskStorage({
+    destination: function(req, file, cb) {
+        // Создаем директорию, если она не существует
+        const uploadDir = path.join(process.cwd(), 'uploads');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: function(req, file, cb) {
+        // Генерируем уникальное имя файла
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        cb(null, 'task-' + uniqueSuffix + ext);
+    }
+});
+
+// Инициализация multer
+const upload = multer({
+    storage,
+    fileFilter,
+    limits: {
+        fileSize: 2 * 1024 * 1024 // 2 MB
+    }
+});
+
+// Роуты для загрузки изображений
+// Создание задания с изображением
+router.post('/tasks/upload', upload.single('taskImage'), async (req, res) => {
+    try {
+        // Получаем данные из запроса
+        const taskData = req.body;
+
+        // Если есть файл, добавляем его путь в данные задания
+        if (req.file) {
+            taskData.icon = req.file.filename;
+        }
+
+        // Преобразуем requirements из строки в объект
+        if (taskData.requirements && typeof taskData.requirements === 'string') {
+            taskData.requirements = JSON.parse(taskData.requirements);
+        }
+
+        // Создаем задание
+        const task = await Task.create(taskData);
+
+        res.status(201).json({ success: true, data: task });
+    } catch (error) {
+        console.error('Ошибка создания задания с изображением:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Обновление задания с изображением
+router.put('/tasks/:id/upload', upload.single('taskImage'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const taskData = req.body;
+
+        // Преобразуем requirements из строки в объект
+        if (taskData.requirements && typeof taskData.requirements === 'string') {
+            taskData.requirements = JSON.parse(taskData.requirements);
+        }
+
+        // Находим существующее задание
+        const existingTask = await Task.findById(id);
+        if (!existingTask) {
+            return res.status(404).json({ success: false, message: 'Задание не найдено' });
+        }
+
+        // Если загружено новое изображение
+        if (req.file) {
+            // Удаляем старое изображение, если оно не является стандартным
+            if (existingTask.icon && existingTask.icon !== 'default.png' && !existingTask.icon.startsWith('http')) {
+                const oldFilePath = path.join(process.cwd(), 'uploads', existingTask.icon);
+                if (fs.existsSync(oldFilePath)) {
+                    fs.unlinkSync(oldFilePath);
+                }
+            }
+
+            // Обновляем путь к изображению
+            taskData.icon = req.file.filename;
+        }
+
+        // Обновляем задание
+        const task = await Task.findByIdAndUpdate(id, taskData, { new: true });
+
+        res.json({ success: true, data: task });
+    } catch (error) {
+        console.error('Ошибка обновления задания с изображением:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Фильтр файлов (только изображения)
+const fileFilter = (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+        cb(null, true);
+    } else {
+        cb(new Error('Разрешены только изображения!'), false);
+    }
+};
+
+
 const router = express.Router();
 
 // ПОЛЬЗОВАТЕЛИ
