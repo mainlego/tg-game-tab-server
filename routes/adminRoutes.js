@@ -52,17 +52,46 @@ const upload = multer({
 // Создание задания с изображением
 router.post('/tasks/upload', upload.single('taskImage'), async (req, res) => {
     try {
-        // Получаем данные из запроса
-        const taskData = req.body;
+        // Отладка - выводим полученные данные
+        console.log('Received body:', req.body);
+        console.log('Received file:', req.file ? req.file.filename : 'No file');
 
-        // Если есть файл, добавляем его путь в данные задания
+        // Получаем данные из запроса
+        const taskData = {
+            title: req.body.title,
+            description: req.body.description,
+            type: req.body.type || 'daily',
+            reward: Number(req.body.reward) || 100,
+            active: req.body.active === 'true' || req.body.active === true
+        };
+
+        // Если есть файл, добавляем его путь
         if (req.file) {
             taskData.icon = req.file.filename;
+        } else if (req.body.icon) {
+            taskData.icon = req.body.icon;
         }
 
         // Преобразуем requirements из строки в объект
-        if (taskData.requirements && typeof taskData.requirements === 'string') {
-            taskData.requirements = JSON.parse(taskData.requirements);
+        if (req.body.requirements) {
+            try {
+                taskData.requirements = JSON.parse(req.body.requirements);
+            } catch (e) {
+                console.error('Failed to parse requirements:', e);
+                taskData.requirements = { level: 1, income: 0 };
+            }
+        } else {
+            taskData.requirements = { level: 1, income: 0 };
+        }
+
+        console.log('Final task data to create:', taskData);
+
+        // Проверяем обязательные поля
+        if (!taskData.title || !taskData.description) {
+            return res.status(400).json({
+                success: false,
+                error: `Missing required fields: ${!taskData.title ? 'title' : ''} ${!taskData.description ? 'description' : ''}`
+            });
         }
 
         // Создаем задание
