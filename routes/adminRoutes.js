@@ -145,6 +145,103 @@ router.put('/tasks/:id/upload', upload.single('taskImage'), async (req, res) => 
     }
 });
 
+
+
+// Создание продукта с изображением
+router.post('/products/upload', upload.single('productImage'), async (req, res) => {
+    try {
+        // Отладка - выводим полученные данные
+        console.log('Received body:', req.body);
+        console.log('Received file:', req.file ? req.file.filename : 'No file');
+
+        // Находим максимальный order и увеличиваем на 1
+        const lastProduct = await Product.findOne({}).sort({ order: -1 });
+        const order = lastProduct ? lastProduct.order + 1 : 0;
+
+        // Получаем данные из запроса
+        const productData = {
+            name: req.body.name,
+            description: req.body.description,
+            type: req.body.type || 'digital',
+            requiredIncome: Number(req.body.requiredIncome) || 0,
+            claimInstructions: req.body.claimInstructions || '',
+            gradient: req.body.gradient || 'linear-gradient(140.83deg, rgb(111, 95, 242) 0%, rgb(73, 51, 131) 100%)',
+            active: req.body.active === 'true' || req.body.active === true,
+            order,
+            stats: {
+                claims: 0,
+                completedClaims: 0,
+                cancelledClaims: 0
+            }
+        };
+
+        // Если есть файл, добавляем его путь
+        if (req.file) {
+            productData.image = req.file.filename;
+        } else if (req.body.image) {
+            productData.image = req.body.image;
+        }
+
+        console.log('Final product data to create:', productData);
+
+        // Проверяем обязательные поля
+        if (!productData.name || !productData.description) {
+            return res.status(400).json({
+                success: false,
+                error: `Missing required fields: ${!productData.name ? 'name' : ''} ${!productData.description ? 'description' : ''}`
+            });
+        }
+
+        // Создаем продукт
+        const product = await Product.create(productData);
+
+        res.status(201).json({ success: true, data: product });
+    } catch (error) {
+        console.error('Ошибка создания продукта с изображением:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
+// Обновление продукта с изображением
+router.put('/products/:id/upload', upload.single('productImage'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const productData = { ...req.body };
+
+        // Преобразуем числовые и булевы значения
+        productData.requiredIncome = Number(productData.requiredIncome) || 0;
+        productData.active = productData.active === 'true' || productData.active === true;
+
+        // Находим существующий продукт
+        const existingProduct = await Product.findById(id);
+        if (!existingProduct) {
+            return res.status(404).json({ success: false, message: 'Продукт не найден' });
+        }
+
+        // Если загружено новое изображение
+        if (req.file) {
+            // Удаляем старое изображение, если оно не является URL и существует в файловой системе
+            if (existingProduct.image && !existingProduct.image.startsWith('http') && !existingProduct.image.startsWith('/')) {
+                const oldFilePath = path.join(process.cwd(), 'uploads', existingProduct.image);
+                if (fs.existsSync(oldFilePath)) {
+                    fs.unlinkSync(oldFilePath);
+                }
+            }
+
+            // Обновляем путь к изображению
+            productData.image = req.file.filename;
+        }
+
+        // Обновляем продукт
+        const product = await Product.findByIdAndUpdate(id, productData, { new: true });
+
+        res.json({ success: true, data: product });
+    } catch (error) {
+        console.error('Ошибка обновления продукта с изображением:', error);
+        res.status(400).json({ success: false, error: error.message });
+    }
+});
+
 // ПОЛЬЗОВАТЕЛИ
 // ============
 
