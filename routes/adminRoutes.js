@@ -65,6 +65,7 @@ router.post('/tasks/upload', upload.single('taskImage'), async (req, res) => {
             active: req.body.active === 'true' || req.body.active === true
         };
 
+
         // Если есть файл, добавляем его путь
         if (req.file) {
             taskData.icon = `/uploads/${req.file.filename}`;
@@ -123,16 +124,16 @@ router.put('/tasks/:id/upload', upload.single('taskImage'), async (req, res) => 
 
         // Если загружено новое изображение
         if (req.file) {
-            // Удаляем старое изображение, если оно не является стандартным
-            if (existingTask.icon && existingTask.icon !== 'default.png' && !existingTask.icon.startsWith('http')) {
+            // Удаляем старое изображение, если оно существует
+            if (existingTask.icon && !existingTask.icon.startsWith('http')) {
                 const oldFilePath = path.join(process.cwd(), 'uploads', existingTask.icon);
                 if (fs.existsSync(oldFilePath)) {
                     fs.unlinkSync(oldFilePath);
                 }
             }
 
-            // Обновляем путь к изображению
-            taskData.icon = req.file.filename;
+            // Устанавливаем новый путь к изображению
+            taskData.icon = `/uploads/${req.file.filename}`;
         }
 
         // Обновляем задание
