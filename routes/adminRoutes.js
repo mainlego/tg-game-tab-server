@@ -12,6 +12,19 @@ import fs from 'fs';
 
 const router = express.Router();
 
+// Настройка CORS middleware для маршрутов API
+router.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
+    next();
+});
+
 // Фильтр файлов (только изображения)
 const fileFilter = (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {
@@ -35,7 +48,10 @@ const storage = multer.diskStorage({
         // Генерируем уникальное имя файла
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const ext = path.extname(file.originalname);
-        cb(null, 'product-' + uniqueSuffix + ext);
+
+        // Префикс в зависимости от типа файла
+        const prefix = req.path.includes('tasks') ? 'task-' : 'product-';
+        cb(null, prefix + uniqueSuffix + ext);
     }
 });
 
@@ -44,13 +60,53 @@ const upload = multer({
     storage,
     fileFilter,
     limits: {
-        fileSize: 2 * 1024 * 1024 // 2 MB
+        fileSize: 5 * 1024 * 1024 // 5 MB - увеличенный лимит
     }
 });
 
+// Middleware для обработки ошибок загрузки файлов
+const handleUploadErrors = (req, res, next) => {
+    return upload.single('taskImage')(req, res, (err) => {
+        if (err) {
+            console.error('File upload error:', err);
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Размер файла превышает допустимый лимит (5MB)'
+                });
+            }
+            return res.status(400).json({
+                success: false,
+                error: err.message
+            });
+        }
+        next();
+    });
+};
+
+// Middleware для обработки ошибок загрузки файлов продуктов
+const handleProductUploadErrors = (req, res, next) => {
+    return upload.single('productImage')(req, res, (err) => {
+        if (err) {
+            console.error('Product file upload error:', err);
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Размер файла превышает допустимый лимит (5MB)'
+                });
+            }
+            return res.status(400).json({
+                success: false,
+                error: err.message
+            });
+        }
+        next();
+    });
+};
+
 // Роуты для загрузки изображений
 // Создание задания с изображением
-router.post('/tasks/upload', upload.single('taskImage'), async (req, res) => {
+router.post('/tasks/upload', handleUploadErrors, async (req, res) => {
     try {
         // Отладка - выводим полученные данные
         console.log('Received body:', req.body);
@@ -65,8 +121,7 @@ router.post('/tasks/upload', upload.single('taskImage'), async (req, res) => {
             active: req.body.active === 'true' || req.body.active === true
         };
 
-
-        // Если есть файл, добавляем его путь
+        // Если есть файл, добавляем его путь с правильным префиксом
         if (req.file) {
             taskData.icon = `/uploads/${req.file.filename}`;
         } else if (req.body.icon) {
@@ -106,7 +161,7 @@ router.post('/tasks/upload', upload.single('taskImage'), async (req, res) => {
 });
 
 // Обновление задания с изображением
-router.put('/tasks/:id/upload', upload.single('taskImage'), async (req, res) => {
+router.put('/tasks/:id/upload', handleUploadErrors, async (req, res) => {
     try {
         const { id } = req.params;
         const taskData = req.body;
@@ -124,15 +179,19 @@ router.put('/tasks/:id/upload', upload.single('taskImage'), async (req, res) => 
 
         // Если загружено новое изображение
         if (req.file) {
-            // Удаляем старое изображение, если оно существует
+            // Удаляем старое изображение, если оно не является URL и существует
             if (existingTask.icon && !existingTask.icon.startsWith('http')) {
-                const oldFilePath = path.join(process.cwd(), 'uploads', existingTask.icon);
+                // Получаем имя файла из пути
+                const fileName = existingTask.icon.split('/').pop();
+                const oldFilePath = path.join('/data/uploads', fileName);
+
                 if (fs.existsSync(oldFilePath)) {
                     fs.unlinkSync(oldFilePath);
+                    console.log(`Deleted old file: ${oldFilePath}`);
                 }
             }
 
-            // Устанавливаем новый путь к изображению
+            // Устанавливаем новый путь к изображению с префиксом
             taskData.icon = `/uploads/${req.file.filename}`;
         }
 
@@ -146,11 +205,8 @@ router.put('/tasks/:id/upload', upload.single('taskImage'), async (req, res) => 
     }
 });
 
-
-
 // Создание продукта с изображением
-// Исправление в маршруте создания продукта с изображением
-router.post('/products/upload', upload.single('productImage'), async (req, res) => {
+router.post('/products/upload', handleProductUploadErrors, async (req, res) => {
     try {
         // Отладка - выводим полученные данные
         console.log('Received body:', req.body);
@@ -203,8 +259,9 @@ router.post('/products/upload', upload.single('productImage'), async (req, res) 
         res.status(400).json({ success: false, error: error.message });
     }
 });
+
 // Обновление продукта с изображением
-router.put('/products/:id/upload', upload.single('productImage'), async (req, res) => {
+router.put('/products/:id/upload', handleProductUploadErrors, async (req, res) => {
     try {
         const { id } = req.params;
         const productData = { ...req.body };
@@ -221,16 +278,20 @@ router.put('/products/:id/upload', upload.single('productImage'), async (req, re
 
         // Если загружено новое изображение
         if (req.file) {
-            // Удаляем старое изображение, если оно не является URL и существует в файловой системе
-            if (existingProduct.image && !existingProduct.image.startsWith('http') && !existingProduct.image.startsWith('/')) {
-                const oldFilePath = path.join(process.cwd(), 'uploads', existingProduct.image);
+            // Удаляем старое изображение, если оно не является URL и существует
+            if (existingProduct.image && !existingProduct.image.startsWith('http')) {
+                // Получаем имя файла из пути
+                const fileName = existingProduct.image.split('/').pop();
+                const oldFilePath = path.join('/data/uploads', fileName);
+
                 if (fs.existsSync(oldFilePath)) {
                     fs.unlinkSync(oldFilePath);
+                    console.log(`Deleted old product image: ${oldFilePath}`);
                 }
             }
 
-            // Обновляем путь к изображению
-            productData.image = req.file.filename;
+            // Обновляем путь к изображению с правильным префиксом
+            productData.image = `/uploads/${req.file.filename}`;
         }
 
         // Обновляем продукт
@@ -485,6 +546,21 @@ router.post('/users/actions', async (req, res) => {
 // ПРОДУКТЫ
 // ========
 
+// Получение всех заявок (последние 10) - Этот маршрут должен идти ДО :productId
+router.get('/products/claims/recent', async (req, res) => {
+    try {
+        const claims = await ProductClaim.find({})
+            .populate('productId')
+            .sort({ createdAt: -1 })
+            .limit(10);
+
+        res.json({ success: true, data: claims });
+    } catch (error) {
+        console.error('Ошибка получения последних заявок:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // Получение всех продуктов
 router.get('/products', async (req, res) => {
     try {
@@ -662,21 +738,6 @@ router.put('/products/claims/:claimId', async (req, res) => {
         res.json({ success: true, data: claim });
     } catch (error) {
         console.error('Ошибка обновления статуса заявки:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// Получение всех заявок (последние 10)
-router.get('/products/claims/recent', async (req, res) => {
-    try {
-        const claims = await ProductClaim.find({})
-            .populate('productId')
-            .sort({ createdAt: -1 })
-            .limit(10);
-
-        res.json({ success: true, data: claims });
-    } catch (error) {
-        console.error('Ошибка получения последних заявок:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
