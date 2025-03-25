@@ -25,7 +25,7 @@ const fileFilter = (req, file, cb) => {
 const storage = multer.diskStorage({
     destination: function(req, file, cb) {
         // Создаем директорию, если она не существует
-        const uploadDir = path.join(process.cwd(), 'uploads');
+        const uploadDir = path.join('/data/uploads');
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true });
         }
@@ -35,7 +35,7 @@ const storage = multer.diskStorage({
         // Генерируем уникальное имя файла
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
         const ext = path.extname(file.originalname);
-        cb(null, 'task-' + uniqueSuffix + ext);
+        cb(null, 'product-' + uniqueSuffix + ext);
     }
 });
 
@@ -67,7 +67,7 @@ router.post('/tasks/upload', upload.single('taskImage'), async (req, res) => {
 
         // Если есть файл, добавляем его путь
         if (req.file) {
-            taskData.icon = req.file.filename;
+            taskData.icon = `/uploads/${req.file.filename}`;
         } else if (req.body.icon) {
             taskData.icon = req.body.icon;
         }

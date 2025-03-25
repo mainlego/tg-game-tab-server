@@ -10,6 +10,8 @@ import dbConnect from './lib/dbConnect.js';
 import cors from 'cors';
 import config from './config.js';
 
+import fs from 'fs';
+
 // Импорт моделей
 import User from './models/User.js';
 import Product from './models/Product.js';
@@ -41,12 +43,8 @@ const uploadsDir = path.join(__dirname, 'uploads');
 app.use('/uploads', express.static(uploadsDir));
 console.log(`Serving static files from: ${uploadsDir}`);
 
-// Если директория не существует, создаем её
-import fs from 'fs';
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-    console.log(`Created uploads directory: ${uploadsDir}`);
-}
+
+
 
 
 // ВАЖНО: Удаляем прежние CORS-настройки и используем только один подход
@@ -68,7 +66,16 @@ app.use((req, res, next) => {
 
 
 // Статический маршрут для доступа к загруженным файлам
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+app.use('/uploads', express.static('/data/uploads'));
+console.log('Serving static files from: /data/uploads');
+
+// Если директория не существует, создаем её
+if (!fs.existsSync('/data/uploads')) {
+    fs.mkdirSync('/data/uploads', { recursive: true });
+    console.log('Created uploads directory: /data/uploads');
+}
+
+
 
 // Логирование запросов
 app.use((req, res, next) => {
