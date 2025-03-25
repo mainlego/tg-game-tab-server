@@ -148,6 +148,7 @@ router.put('/tasks/:id/upload', upload.single('taskImage'), async (req, res) => 
 
 
 // Создание продукта с изображением
+// Исправление в маршруте создания продукта с изображением
 router.post('/products/upload', upload.single('productImage'), async (req, res) => {
     try {
         // Отладка - выводим полученные данные
@@ -175,9 +176,9 @@ router.post('/products/upload', upload.single('productImage'), async (req, res) 
             }
         };
 
-        // Если есть файл, добавляем его путь
+        // Если есть файл, добавляем его путь с префиксом /uploads/
         if (req.file) {
-            productData.image = req.file.filename;
+            productData.image = `/uploads/${req.file.filename}`;
         } else if (req.body.image) {
             productData.image = req.body.image;
         }
@@ -201,7 +202,6 @@ router.post('/products/upload', upload.single('productImage'), async (req, res) 
         res.status(400).json({ success: false, error: error.message });
     }
 });
-
 // Обновление продукта с изображением
 router.put('/products/:id/upload', upload.single('productImage'), async (req, res) => {
     try {

@@ -35,6 +35,20 @@ const wss = new WebSocketServer({ server });
 // Хранилище WebSocket клиентов
 const clients = new Map();
 
+
+// Настраиваем статическую раздачу файлов из директории uploads
+const uploadsDir = path.join(__dirname, 'uploads');
+app.use('/uploads', express.static(uploadsDir));
+console.log(`Serving static files from: ${uploadsDir}`);
+
+// Если директория не существует, создаем её
+import fs from 'fs';
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    console.log(`Created uploads directory: ${uploadsDir}`);
+}
+
+
 // ВАЖНО: Удаляем прежние CORS-настройки и используем только один подход
 // для предотвращения конфликтов между разными middleware
 
