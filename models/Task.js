@@ -12,13 +12,17 @@ const taskSchema = new mongoose.Schema({
     },
     type: {
         type: String,
-        enum: ['daily', 'achievement', 'special'],
+        enum: ['daily', 'achievement', 'special', 'platform'],
         default: 'daily'
     },
     reward: {
         type: Number,
         required: true,
         default: 100
+    },
+    link: {
+        type: String,
+        default: '' // Добавляем поле ссылки для заданий
     },
     requirements: {
         level: {
