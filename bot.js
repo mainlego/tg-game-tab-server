@@ -9,6 +9,7 @@ import { createServer } from 'http';
 import dbConnect from './lib/dbConnect.js';
 import cors from 'cors';
 import config from './config.js';
+import referralRoutes from './routes/referralRoutes.js';
 
 import fs from 'fs';
 
@@ -115,6 +116,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/settings', settingsRoutes); // Добавьте эту строку
+app.use('/api/referrals', referralRoutes);
 
 // Обработка WebSocket подключений
 wss.on('connection', (ws, req) => {
