@@ -5,8 +5,8 @@ import fetch from 'node-fetch';
 import express from 'express';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
-import dbConnect from './lib/dbConnect.js';
-import Referral from './models/Referral.js';
+import dbConnect from '../lib/dbConnect.js';
+import Referral from '../models/Referral.js';
 import cors from 'cors';
 
 dotenv.config();
@@ -157,7 +157,7 @@ app.post('/api/notifications/send', async (req, res) => {
 });
 
 // Обработчики команд бота
-bot.onText(/\/start(.*)/, async (msg, match) => {
+bot.onText(/\(.*)/, async (msg, match) => {
     const startParam = match[1].trim();
     const userId = msg.from.id;
 
